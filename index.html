@@ -280,11 +280,11 @@
   #hud.min > *:not(h2){display:none !important;}
   #collectLog.min > *:not(h3){display:none !important;}
   #inlineEdit{
-    position:fixed; z-index:60; width:220px;
-    font-family:'Quicksand',sans-serif; font-weight:700; font-size:16px;
-    padding:8px 12px; border-radius:10px; border:2px solid var(--gold);
+    position:fixed; z-index:60; width:190px; text-align:center;
+    font-family:'Quicksand',sans-serif; font-weight:700; font-size:14px;
+    padding:5px 8px; border-radius:8px; border:2px solid var(--gold);
     background:rgba(8,40,30,.97); color:#fff7e6; outline:none;
-    box-shadow:0 10px 28px rgba(0,0,0,.45);
+    box-shadow:0 8px 22px rgba(0,0,0,.45);
   }
   #tePanel{
     display:none;margin:0 0 9px;
@@ -478,7 +478,7 @@
   window.addEventListener('resize', resize);
 
   // ---------- world ----------
-  const START_HOUR = 7, N_HOURS = 15;   // 7 AM → 9 PM, one half-screen block each
+  const START_HOUR = 7, N_HOURS = 17;   // 7 AM → 11 PM, one half-screen block each
   let WORLD_W = 4400;
   const WORLD_CAP = 2600;        // hard cap: walking the whole strip stays short (no 5-min treks)
   let groundY = 0;
@@ -534,7 +534,10 @@
     if(has('survey','check','review','clipboard','email','paper','form')) return {icon:'clipboard', color:'#ffd24a'};
     if(has('lights off','light off'))                     return {icon:'bulbOff',  color:'#9aa0ad'};
     if(has('light','lamp'))                               return {icon:'bulbOn',   color:'#ffe07a'};
-    return {icon:'orb', color:'#9d6bff'};
+    // no specific drawing → use the emoji written next to the task; if none, a diamond gem
+    const first=(text.trim().match(/^\S+/)||[''])[0];
+    if(/[^\x00-\x7F]/.test(first)) return {icon:'emoji', emoji:first, color:'#9d6bff'};
+    return {icon:'gem', color:'#7fd0ff'};
   }
   function classifyType(text){
     const t = text.toLowerCase();
@@ -696,7 +699,7 @@
   const TASKS_PER_HOUR = 12;   // tasks ride the lower platforms of each hour block
   function buildLevel(taskList){
     tasks = taskList.map((t,i)=>{ const ic=taskIcon(t);
-      return { text:t, color:GEM_COLORS[i % GEM_COLORS.length], iconColor:ic.color, icon:ic.icon, done:false, type:classifyType(t) }; });
+      return { text:t, color:GEM_COLORS[i % GEM_COLORS.length], iconColor:ic.color, icon:ic.icon, emoji:ic.emoji, done:false, type:classifyType(t) }; });
     platforms = []; gems = []; vines = []; structures = [];
     // ---- time axis: N_HOURS half-screen blocks; each block is a staggered cluster of platforms ----
     const HOUR_W = Math.max(700, Math.round(W*0.5));
@@ -736,7 +739,7 @@
   function addTask(text){
     text = (text||'').trim(); if(!text) return;
     const ic = taskIcon(text);
-    tasks.push({ text, color:GEM_COLORS[tasks.length % GEM_COLORS.length], iconColor:ic.color, icon:ic.icon, done:false, type:classifyType(text) });
+    tasks.push({ text, color:GEM_COLORS[tasks.length % GEM_COLORS.length], iconColor:ic.color, icon:ic.icon, emoji:ic.emoji, done:false, type:classifyType(text) });
     const i=tasks.length-1;
     undoStack.push(()=>{ if(i===tasks.length-1){ tasks.pop(); gems=gems.filter(gm=>gm.taskIndex!==i); progress.tasksText=tasks.map(t=>t.text).join('\n'); const bx=document.getElementById('taskBox'); if(bx) bx.value=progress.tasksText; scheduleSave(); buildHud(); } });
     // drop the new icon right where the player is standing
@@ -1491,7 +1494,7 @@
       if(g.collected) return;
       if(!g.free && !typeShown(tasks[g.taskIndex].type)) return;
       if(g.x - cam < -120 || g.x - cam > W+120) return;
-      const r = g.free ? 8 : 30;   // free gems tiny; task characters big & obvious
+      const r = g.free ? 8 : 22;   // free gems tiny; task icons (25% smaller)
       const tk = g.free ? null : tasks[g.taskIndex];
       const glowCol = g.free ? g.color : tk.iconColor;
       const gl = ctx.createRadialGradient(g.x,g.y,2,g.x,g.y,r*2.4);
@@ -1511,11 +1514,11 @@
       ctx.fillStyle=sh; ctx.beginPath(); ctx.ellipse(g.x, g.y+r*1.0, r*1.05, r*0.42, 0,0,Math.PI*2); ctx.fill();
 
       // task gem = a 3D icon matching the task
-      drawTaskIcon(tk.icon, g.x, g.y, r, tk.iconColor);
+      drawTaskIcon(tk.icon, g.x, g.y, r, tk.iconColor, tk.emoji);
       drawFaceOn(g.x, g.y, r, g.bob);
 
-      ctx.font='700 18px Quicksand,sans-serif';      // 25% smaller, wraps onto multiple rows
-      const maxW=240, lineH=21, padX=10, padY=5;
+      ctx.font='700 14px Quicksand,sans-serif';      // 25% smaller again, wraps onto multiple rows
+      const maxW=185, lineH=16, padX=8, padY=4;
       const words=tk.text.split(' ');
       const lines=[]; let cur='';
       for(const w of words){ const test=cur?cur+' '+w:w;
@@ -1817,8 +1820,14 @@
   }
 
   // ---------- 3D task icons (match the actual task) ----------
-  function drawTaskIcon(icon,x,y,r,color){
+  function drawTaskIcon(icon,x,y,r,color,emoji){
+    if(icon==='emoji' && emoji){
+      ctx.save(); ctx.font=(r*1.9|0)+'px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText(emoji, x, y+1); ctx.restore();
+      ctx.textAlign='left'; ctx.textBaseline='alphabetic'; return;
+    }
     ctx.save(); ctx.translate(x,y);
+    if(icon==='gem'){ drawGemstone(r, color, t*0.05+y*0.01); ctx.restore(); return; }   // diamond default
     const hi=shade(color,95), dk=shade(color,-72);
     const gloss=(gx,gy,gw,gh,rot=-0.5,a=0.5)=>{ ctx.fillStyle='rgba(255,255,255,'+a+')'; ctx.beginPath(); ctx.ellipse(gx,gy,gw,gh,rot,0,Math.PI*2); ctx.fill(); };
     const grad=(rad)=>{ const g=ctx.createRadialGradient(-rad*0.3,-rad*0.35,2,0,0,rad*1.1); g.addColorStop(0,hi); g.addColorStop(0.5,color); g.addColorStop(1,dk); return g; };
@@ -2403,7 +2412,7 @@
   function applyTaskEdit(i, nv){
     tasks[i].text = nv;
     const ic = taskIcon(nv);
-    tasks[i].icon = ic.icon; tasks[i].iconColor = ic.color; tasks[i].type = classifyType(nv);
+    tasks[i].icon = ic.icon; tasks[i].emoji = ic.emoji; tasks[i].iconColor = ic.color; tasks[i].type = classifyType(nv);
     for(const g of gems){ if(g.taskIndex===i) g.color = ic.color; }
     progress.tasksText = tasks.map(t=>t.text).join('\n');
     const bx=document.getElementById('taskBox'); if(bx) bx.value = progress.tasksText;
@@ -2421,13 +2430,14 @@
   function editTask(i){
     if(i==null || !tasks[i]) return;
     commitInlineEdit(false);
-    // find this task's gem on screen so the box appears right on it
+    // overlay the input exactly where the task's name bubble floats (edit the bubble in place)
     let sx=W/2, sy=110;
-    for(const g of gems){ if(g.taskIndex===i && !g.collected){ sx=g.x-cam; sy=g.y-58; break; } }
+    for(const g of gems){ if(g.taskIndex===i && !g.collected){ sx=g.x-cam; sy=g.y-22-44; break; } }
     const inp=document.createElement('input');
     inp.type='text'; inp.id='inlineEdit'; inp.maxLength=80; inp.value=tasks[i].text;
-    inp.style.left=Math.max(8, Math.min(W-228, sx-110))+'px';
-    inp.style.top =Math.max(8, sy)+'px';
+    const wEl=190;
+    inp.style.left=Math.max(6, Math.min(W-wEl-6, sx-wEl/2))+'px';
+    inp.style.top =Math.max(6, sy)+'px';
     document.body.appendChild(inp);
     inlineEditEl=inp; inlineEditIdx=i;
     inp.focus(); inp.select();
@@ -2439,14 +2449,17 @@
   canvas.addEventListener('click', e=>{
     const rect=canvas.getBoundingClientRect();
     const mx=e.clientX-rect.left, my=e.clientY-rect.top;
+    let bestIcon=null, bestD=1e9, bestLabel=null;
     for(const g of gems){
       if(g.collected || g.free || g.flying) continue;
       if(!typeShown(tasks[g.taskIndex].type)) continue;
       const gx=g.x-cam;
-      const onIcon  = Math.hypot(mx-gx, my-g.y) < 40;
-      const onLabel = Math.abs(mx-gx) < 150 && my < g.y-18 && my > g.y-160;   // the name bubble above the icon
-      if(onIcon || onLabel){ editTask(g.taskIndex); break; }
+      const dIcon=Math.hypot(mx-gx, my-g.y);
+      if(dIcon < 46 && dIcon < bestD){ bestD=dIcon; bestIcon=g; }   // clicking the character/icon
+      if(!bestLabel && Math.abs(mx-gx) < 110 && my < g.y-14 && my > g.y-150) bestLabel=g;  // the name bubble
     }
+    const hit = bestIcon || bestLabel;
+    if(hit) editTask(hit.taskIndex);
   });
 
   // ---- X: make the task go away in a puff of cloud (different from completing) ----
@@ -2522,9 +2535,13 @@
     // 8 PM
     '🚽 Urinate','🔁 Reset','🍽️ Snack','🍽️ Snack','🧼 Clean','🧼 Clean','📱 Chill','📱 Chill','🎬 Watch','🎬 Watch','🧘 Relax','🧘 Relax',
     // 9 PM
-    '🚽 Urinate','🔁 Reset','🔌 Unplug','🔌 Unplug','📓 Journal','📓 Journal','🧠 Reflect','🧠 Reflect','🛏️ Wind Down','🛏️ Wind Down','🌙 Sleep Prep','🌙 Sleep Prep'
+    '🚽 Urinate','🔁 Reset','🔌 Unplug','🔌 Unplug','📓 Journal','📓 Journal','🧠 Reflect','🧠 Reflect','🛏️ Wind Down','🛏️ Wind Down','🌙 Sleep Prep','🌙 Sleep Prep',
+    // 10 PM
+    '🚽 Urinate','🔁 Reset','🦷 Floss','🪥 Brush Teeth','🚿 Wash Face','🧴 Night Serum','💊 Night Meds','📓 Journal','🧘 Relax','📵 Phone Away','🛏️ Get in Bed','🌙 Dim Lights',
+    // 11 PM
+    '🚽 Urinate','💧 Sip Water','🫁 Breathe','🧠 Reflect','📓 Gratitude','🛏️ Lie Down','🌙 Eyes Closed','😴 Sleep','😴 Sleep','😴 Sleep','😴 Sleep','😴 Sleep'
   ].join('\n');
-  const TASK_VERSION = 'schedule-v1';
+  const TASK_VERSION = 'schedule-v2';
   const today = () => new Date().toDateString();
   let progress = { name:'', color:null, coins:0, tasksText:'', done:{}, day:'', taskVersion:'' };
   let saveTimer=null;
@@ -2701,18 +2718,20 @@
   }
 
   // minimize / restore the two task boxes
-  function wireMinimize(btnId, boxId){
+  function wireMinimize(btnId, boxId, keepTag){
     const btn=document.getElementById(btnId), box=document.getElementById(boxId);
     if(!btn||!box) return;
-    btn.addEventListener('click', e=>{
-      e.stopPropagation();
-      const min=box.classList.toggle('min');
-      btn.textContent = min ? '+' : '–';
-      btn.title = min ? 'Expand' : 'Minimize';
-    });
+    let min=false;
+    btn.onclick=(e)=>{
+      e.stopPropagation(); e.preventDefault();
+      min=!min;
+      Array.from(box.children).forEach(ch=>{ if(ch.tagName!==keepTag) ch.style.display = min?'none':''; });
+      btn.textContent = min?'+':'–';
+      btn.title = min?'Expand':'Minimize';
+    };
   }
-  wireMinimize('hudMin','hud');
-  wireMinimize('clogMin','collectLog');
+  wireMinimize('hudMin','hud','H2');
+  wireMinimize('clogMin','collectLog','H3');
 
   // task-editor wiring
   function applyTasks(){
