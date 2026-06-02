@@ -2493,51 +2493,38 @@
   let CURRENT_USER = (()=>{ try{ return localStorage.getItem('frogquest_currentUser')||''; }catch(e){ return ''; } })();
   const progKey = () => 'frogquest' + (CURRENT_USER ? '_'+CURRENT_USER : '');
   const DAILY_TASKS = [
-    '🪥 brush teeth',
-    '👁️ put in contacts',
-    '⌚ charge watch',
-    '🛏️ raise bed',
-    '💧 water 125 mL',
-    '🥟 microwave dumplings',
-    '🚽 pee',
-    '🧼 wash hands',
-    '🪥 waterfloss',
-    '🧵 floss',
-    '🌿 peppermint tea',
-    '🫒 olive leaf tea',
-    '💊 trapped gas supplement',
-    '💡 turn small light on',
-    '🌑 turn lights off',
-    '🧼 wash face',
-    '🧴 serum',
-    '💆 theragun massage',
-    '☀️ get some sun',
-    '🥤 water 500 mL',
-    '🧹 clean room',
-    '🚽 urinate',
-    '🥟 eat 4 dumplings, spit out chives',
-    '🍳 meal prep',
-    '🍽️ eat a real meal',
-    '💊 zinc carnosine',
-    '💊 quercetin',
-    '💊 probiotics',
-    '💊 L-glutamine',
-    '💊 zyrtec',
-    '🛁 shower',
-    '🚶 movement break',
-    '👕 get dressed',
-    '🏠 apartments.com search',
-    '💼 work block',
-    '📋 use AI to email 10 rehab centers + Excel sheet',
-    "📋 check A's M3 survey",
-    '📋 check surveys',
-    '🚽 toilet',
-    '💧 boil steamer water',
-    '🥚 add 8 eggs, set 10 min timer',
-    '💊 take 0.06 mg xanax',
-    '📋 reply doctor'
+    // 7 AM
+    '🚽 Urinate','💧 Water','🌅 Wake / Start Day','🧠 Plan Day','🫁 Breathe','🪥 Brush Teeth','👓 Glasses','🚿 Wash Face','💊 Supplements','🧘 Stretch','🎯 Focus Setup','📱 Light Task',
+    // 8 AM
+    '🚽 Urinate','💧 Water','🗑️ Take Out Trash','🗑️ Trash','🛑 STOP! Breath','🍵 Make Tea','🔥 Boil Tea','🍵 Tea Prep','🌿 Outdoor / Isolate','🏃 Exercise','🌿 Outdoor','💃 Dance',
+    // 9 AM
+    '🚽 Urinate','💧 Water','🎵 Music Task','🗑️ Trash','🍵 Drink Tea','💪 Arm Exercises','🍵 Tea','📱 Work Social','🚿 Wash Face','🎯 Focus','🚿 Wash Face','🎯 Focus',
+    // 10 AM
+    '🚽 Urinate','💧 Water','💇 Hair Serum','🎯 Focus','💊 Xanax','🧪 Test','🍳 Meal','🍳 Meal','🍒 Cranberry','💊 L-Glutamine','🍎 Fruit','🦷 Floss',
+    // 11 AM
+    '🚽 Urinate','💧 Water','🫁 Breathe','🩳 Shorts','⌚ Watch','⌚ Wear Watch','🍽️ Eat','☀️ Walk','☀️ Walk','☀️ Walk','☀️ Walk','🧘 Stretch',
+    // 12 PM
+    '🚽 Urinate','💧 Water','💄 Makeup','💄 Makeup','👕 Dress','🧾 Taxes','🦠 Probiotic','🛑 Breath','⚠️ Med Warning','👕 Clothing','📧 Email','💊 Xanax',
+    // 1 PM
+    '🚽 Urinate','💧 Water','📧 Email','💊 Supplements','📍 Reminders','💊 Meds','🦷 Floss','🍳 Meal','🍳 Meal','💊 Supplements','🍵 Tea','👕 Dress',
+    // 2 PM
+    '🚽 Urinate','💧 Water (last)','💊 Meds','⏰ Reminder','🦷 Floss','🎧 Music','📧 Work','💊 Xanax','🧴 Sunscreen','🎒 Pack','🦷 Floss','🧾 Task',
+    // 3 PM
+    '🚽 Urinate','🔁 Reset','🎯 Focus','🎯 Focus','📱 Work','📱 Work','🧠 Think','📧 Email','🎯 Focus','🎯 Focus','🚶 Move','💧 Water',
+    // 4 PM
+    '🚽 Urinate','🔁 Reset','🎯 Focus','🎯 Focus','📱 Work','📱 Work','🧠 Think','📧 Email','🎯 Focus','🎯 Focus','🚶 Move','💧 Water',
+    // 5 PM
+    '🚽 Urinate','🔁 Reset','🌿 Outdoor','🌿 Outdoor','🧘 Stretch','🧘 Stretch','🍽️ Dinner Prep','🍽️ Cook','🍽️ Cook','🍽️ Eat','🍽️ Eat','🧼 Clean',
+    // 6 PM
+    '🚽 Urinate','🔁 Reset','🧼 Clean','🧼 Clean','📱 Light Task','📱 Light Task','🎧 Music','🎧 Music','🧠 Reflect','🧠 Reflect','🚶 Walk','🚶 Walk',
+    // 7 PM
+    '🚽 Urinate','🔁 Reset','🦷 Floss','🪥 Brush','🚿 Wash Face','💄 Groom','📱 Chill','📱 Chill','🎧 Music','🎧 Music','🧠 Reflect','🧠 Reflect',
+    // 8 PM
+    '🚽 Urinate','🔁 Reset','🍽️ Snack','🍽️ Snack','🧼 Clean','🧼 Clean','📱 Chill','📱 Chill','🎬 Watch','🎬 Watch','🧘 Relax','🧘 Relax',
+    // 9 PM
+    '🚽 Urinate','🔁 Reset','🔌 Unplug','🔌 Unplug','📓 Journal','📓 Journal','🧠 Reflect','🧠 Reflect','🛏️ Wind Down','🛏️ Wind Down','🌙 Sleep Prep','🌙 Sleep Prep'
   ].join('\n');
-  const TASK_VERSION = 'daily-v4';
+  const TASK_VERSION = 'schedule-v1';
   const today = () => new Date().toDateString();
   let progress = { name:'', color:null, coins:0, tasksText:'', done:{}, day:'', taskVersion:'' };
   let saveTimer=null;
@@ -2552,11 +2539,10 @@
     try{ if(window.storage){ const r=await window.storage.get(progKey(),false); if(r&&r.value) p=JSON.parse(r.value); } }catch(e){}
     if(!p){ try{ const v=localStorage.getItem(progKey()); if(v) p=JSON.parse(v); }catch(e){} }
     if(p) progress = Object.assign({ name:'', color:null, coins:0, tasksText:'', done:{}, day:'', taskVersion:'' }, p);
-    // seed the default list ONLY for brand-new players — never clobber tasks you've entered,
-    // even when the file/code is updated and redeployed
-    if(!progress.tasksText){
+    // load the default schedule for brand-new players, OR once when the schedule VERSION changes
+    // (so an intentionally-published new schedule shows up). Normal edits/redeploys never wipe.
+    if(!progress.tasksText || progress.taskVersion !== TASK_VERSION){
       progress.tasksText = DAILY_TASKS;
-      progress.done = {};
       progress.taskVersion = TASK_VERSION;
       progress.day = today();
     } else if(progress.day !== today()){
