@@ -279,6 +279,13 @@
   .minbtn:hover{background:rgba(255,255,255,.26);}
   #hud.min > *:not(h2){display:none !important;}
   #collectLog.min > *:not(h3){display:none !important;}
+  #inlineEdit{
+    position:fixed; z-index:60; width:220px;
+    font-family:'Quicksand',sans-serif; font-weight:700; font-size:16px;
+    padding:8px 12px; border-radius:10px; border:2px solid var(--gold);
+    background:rgba(8,40,30,.97); color:#fff7e6; outline:none;
+    box-shadow:0 10px 28px rgba(0,0,0,.45);
+  }
   #tePanel{
     display:none;margin:0 0 9px;
   }
@@ -390,7 +397,7 @@
   <div id="nameCardName">Player</div>
   <div id="nameCardEdit">✎ click to edit</div>
 </div>
-<div id="mpBadge">👥 Multiplayer · <span id="mpCount">1</span></div>
+<div id="mpBadge">👥 Multiplayer · <span id="mpCount">1</span><span id="mpMe"></span></div>
 <div id="mpNames"></div>
 
 <!-- collected log (top left, under multiplayer) -->
@@ -691,10 +698,19 @@
     const cookIdx=[], pathIdx=[];
     tasks.forEach((tk,i)=>{ (isCooking(tk.text)?cookIdx:pathIdx).push(i); });
     // capped strip — never grows past WORLD_CAP no matter how many tasks
-    // each theme section ≈ half a screen wide
-    const SECTION_W = Math.max(700, Math.round(W*0.5));
-    WORLD_W = SECTION_W * SECTION_LABELS.length;
+    // time axis: 16 hours (8 AM → 11 PM), each ≈ half a screen wide → slot tasks by hour
+    const HOUR_W = Math.max(700, Math.round(W*0.5));
+    WORLD_W = HOUR_W * 16;
     leftDoorX = 14; rightDoorX = WORLD_W - DOOR_W - 14;
+    // 15 low hop-on platforms inside every hour slot (room for up to 15 tasks per hour)
+    for(let h=0; h<16; h++){
+      const slotW=HOUR_W/15;
+      for(let s=0; s<15; s++){
+        const x = h*HOUR_W + (s+0.5)*slotW;
+        const yy = groundY - (40 + (s%2)*34);          // alternate two low heights → easy hops
+        platforms.push({ x:x-slotW*0.36, y:yy, w:slotW*0.72, type:PLAT_TYPES[(h+s)%PLAT_TYPES.length] });
+      }
+    }
     const slotMin = 360, slotMax = WORLD_W - 360;
     const COLS = Math.max(1, Math.floor((slotMax - slotMin) / GEM_SPACING) + 1);
     let prevX=90, prevTier=0;
@@ -2258,6 +2274,12 @@
     for(const p of platforms){ miniCtx.fillRect(p.x*sx, p.y*sy, Math.max(1.2,p.w*sx), 1.6); }
     miniCtx.fillStyle='#37c871';
     for(const g of gems){ if(g.collected||g.free) continue; miniCtx.fillRect(g.x*sx-1, g.y*sy-1, 2.4,2.4); }
+    // hourly time sticks (8 AM → 11 PM)
+    miniCtx.strokeStyle='rgba(160,110,60,.85)'; miniCtx.lineWidth=1.4;
+    miniCtx.fillStyle='rgba(233,211,176,.9)'; miniCtx.font='7px Quicksand,sans-serif'; miniCtx.textAlign='center';
+    for(let i=0;i<16;i++){ const tx=((i+0.5)*WORLD_W/16)*sx; const hr=8+i; const h12=(hr%12)||12;
+      miniCtx.beginPath(); miniCtx.moveTo(tx,2); miniCtx.lineTo(tx,ch-2); miniCtx.stroke();
+      miniCtx.fillText(h12+(hr<12?'a':'p'), tx, 8); }
     miniCtx.strokeStyle='rgba(255,255,255,.35)'; miniCtx.lineWidth=1; miniCtx.strokeRect(cam*sx,0.5,W*sx,ch-1);
     const px=(player.x+player.w/2)*sx, py=(player.y+player.h/2)*sy;
     miniCtx.beginPath(); miniCtx.arc(px,py,3,0,Math.PI*2); miniCtx.fillStyle='#ff5d8f'; miniCtx.fill();
@@ -2366,11 +2388,7 @@
   vbDid.addEventListener('click', confirmTask);
 
   // ---- click a task (HUD row or the in-world character) to edit its text ----
-  function editTask(i){
-    if(i==null || !tasks[i]) return;
-    const v = prompt('Edit task:', tasks[i].text);
-    if(v===null) return;
-    const nv = v.trim(); if(!nv) return;
+  function applyTaskEdit(i, nv){
     tasks[i].text = nv;
     const ic = taskIcon(nv);
     tasks[i].icon = ic.icon; tasks[i].iconColor = ic.color; tasks[i].type = classifyType(nv);
@@ -2379,6 +2397,32 @@
     const bx=document.getElementById('taskBox'); if(bx) bx.value = progress.tasksText;
     scheduleSave();
     buildHud();
+  }
+  let inlineEditEl=null, inlineEditIdx=null;
+  function commitInlineEdit(save){
+    if(!inlineEditEl) return;
+    const el=inlineEditEl, idx=inlineEditIdx;
+    inlineEditEl=null; inlineEditIdx=null;     // clear first so blur doesn't re-enter
+    if(save && idx!=null && tasks[idx]){ const nv=el.value.trim(); if(nv) applyTaskEdit(idx, nv); }
+    el.remove();
+  }
+  function editTask(i){
+    if(i==null || !tasks[i]) return;
+    commitInlineEdit(false);
+    // find this task's gem on screen so the box appears right on it
+    let sx=W/2, sy=110;
+    for(const g of gems){ if(g.taskIndex===i && !g.collected){ sx=g.x-cam; sy=g.y-58; break; } }
+    const inp=document.createElement('input');
+    inp.type='text'; inp.id='inlineEdit'; inp.maxLength=80; inp.value=tasks[i].text;
+    inp.style.left=Math.max(8, Math.min(W-228, sx-110))+'px';
+    inp.style.top =Math.max(8, sy)+'px';
+    document.body.appendChild(inp);
+    inlineEditEl=inp; inlineEditIdx=i;
+    inp.focus(); inp.select();
+    inp.addEventListener('keydown', e=>{ e.stopPropagation();
+      if(e.key==='Enter'){ e.preventDefault(); commitInlineEdit(true); }
+      else if(e.key==='Escape'){ e.preventDefault(); commitInlineEdit(false); } });
+    inp.addEventListener('blur', ()=> commitInlineEdit(true));
   }
   canvas.addEventListener('click', e=>{
     const rect=canvas.getBoundingClientRect();
