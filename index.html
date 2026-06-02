@@ -478,6 +478,7 @@
   window.addEventListener('resize', resize);
 
   // ---------- world ----------
+  const START_HOUR = 7, N_HOURS = 15;   // 7 AM → 9 PM, one half-screen block each
   let WORLD_W = 4400;
   const WORLD_CAP = 2600;        // hard cap: walking the whole strip stays short (no 5-min treks)
   let groundY = 0;
@@ -500,6 +501,7 @@
   function taskIcon(text){
     const t=text.toLowerCase();
     const has=(...ks)=>ks.some(k=>t.includes(k));
+    if(has('m3'))                                         return {icon:'bill',     color:'#2f9c54'};
     if(has('pee','urinate','toilet','bathroom','potty'))  return {icon:'toilet',   color:'#cfe9ff'};
     if(has('raise bed','make bed','bed'))                 return {icon:'bed',      color:'#ffc9d6'};
     if(has('trapped gas','flatulence','gas supplement','gas')) return {icon:'pill', color:'#bdf0c4'};
@@ -691,70 +693,43 @@
       i++;
     }
   }
+  const TASKS_PER_HOUR = 12;   // tasks ride the lower platforms of each hour block
   function buildLevel(taskList){
     tasks = taskList.map((t,i)=>{ const ic=taskIcon(t);
       return { text:t, color:GEM_COLORS[i % GEM_COLORS.length], iconColor:ic.color, icon:ic.icon, done:false, type:classifyType(t) }; });
     platforms = []; gems = []; vines = []; structures = [];
-    const cookIdx=[], pathIdx=[];
-    tasks.forEach((tk,i)=>{ (isCooking(tk.text)?cookIdx:pathIdx).push(i); });
-    // capped strip — never grows past WORLD_CAP no matter how many tasks
-    // time axis: 16 hours (8 AM → 11 PM), each ≈ half a screen wide → slot tasks by hour
+    // ---- time axis: N_HOURS half-screen blocks; each block is a staggered cluster of platforms ----
     const HOUR_W = Math.max(700, Math.round(W*0.5));
-    WORLD_W = HOUR_W * 16;
+    WORLD_W = HOUR_W * N_HOURS;
     leftDoorX = 14; rightDoorX = WORLD_W - DOOR_W - 14;
-    // 15 rounded-rectangle ledges scattered (checkerboard) between each hour's two lines,
-    // spread from the ground up to ~90% of the screen
-    {
-      const cols=3, rows=5;                            // 3 × 5 = 15
-      const colW=HOUR_W/cols;
-      const yBottom=groundY-46;
-      // keep each row within one comfortable jump of the next (tied to the real jump height)
-      const comfyGap=((JUMP*JUMP)/(2*GRAV))*0.78;
-      const spread=Math.min(yBottom-Math.max(90,H*0.10), comfyGap*(rows-1));
-      const doorL=leftDoorX+DOOR_W+50, doorR=rightDoorX-50;   // keep clear of both warp doors
-      for(let h=0; h<16; h++){
-        for(let r=0; r<rows; r++){
-          for(let c=0; c<cols; c++){
-            const stagger=(r%2)?colW*0.5:0;            // checkerboard offset every other row
-            let x = h*HOUR_W + c*colW + colW*0.5 + stagger + (Math.random()*34-17);
-            x = Math.max(h*HOUR_W+46, Math.min((h+1)*HOUR_W-46, x));
-            if(x < doorL || x > doorR) continue;       // never block a warp door / before 8 AM
-            const y = yBottom - (r/(rows-1))*spread + (Math.random()*18-9);
-            const w = colW*0.58;
-            platforms.push({ x:x-w/2, y, w, type:'ledge' });
-            if(r>=3) vines.push({ x:x, top:0, len:y-6 });
-          }
+    const rowGap = ((JUMP*JUMP)/(2*GRAV)) * 0.7;     // one comfortable jump between rows
+    const pw = 126;
+    const doorL = leftDoorX + DOOR_W + 50, doorR = rightDoorX - 50;
+    const fracs = [0.12, 0.32, 0.68, 0.88];          // 2 left + 2 right of the centre stick (0.5)
+    for(let h=0; h<N_HOURS; h++){
+      // 20 platform slots: 5 rows × 4, gently staggered, never on the centre time-line
+      const slots = [];
+      for(let r=0; r<5; r++){
+        const y = groundY - 50 - r*rowGap;
+        const jit = (r%2) ? HOUR_W*0.05 : -HOUR_W*0.05;
+        for(const f of fracs) slots.push({ x:h*HOUR_W + HOUR_W*f + jit, y, r });
+      }
+      slots.forEach((s, si)=>{
+        if(s.x < doorL || s.x > doorR) return;       // keep warp doors clear
+        platforms.push({ x:s.x-pw/2, y:s.y, w:pw, type:'ledge' });
+        if(s.r >= 2) vines.push({ x:s.x, top:0, len:s.y-6 });   // vines to reach the upper rows
+        const k = h*TASKS_PER_HOUR + si;             // first 12 slots (lower rows) carry this hour's tasks
+        if(si < TASKS_PER_HOUR && k < tasks.length){
+          gems.push({ x:s.x, y:s.y-30, baseY:s.y-30, color:tasks[k].iconColor, taskIndex:k, collected:false, bob:Math.random()*Math.PI*2 });
         }
+      });
+      // 10 free gems sprinkled through the hour for a lively look
+      for(let g=0; g<10; g++){
+        const gx = h*HOUR_W + 60 + Math.random()*(HOUR_W-120);
+        if(gx < doorL || gx > doorR) continue;
+        const gy = groundY - 28 - Math.random()*(groundY-150);
+        gems.push({ x:gx, y:gy, baseY:gy, color:GEM_COLORS[(g+h*3)%GEM_COLORS.length], taskIndex:-1, free:true, collected:false, bob:Math.random()*Math.PI*2 });
       }
-    }
-    const slotMin = 360, slotMax = WORLD_W - 360;
-    const COLS = Math.max(1, Math.floor((slotMax - slotMin) / GEM_SPACING) + 1);
-    let prevX=90, prevTier=0;
-    pathIdx.forEach((ti,k)=>{
-      const col = k % COLS, row = (k / COLS) | 0;
-      const x = slotMin + col*GEM_SPACING;
-      if(row===0){
-        // first lap: walk the ground strip as usual
-        const tt=tierAt(col);
-        addStepsBetween(prevX, prevTier, x, tt);
-        const gy=placeGemPlatform(col,x,tt);
-        gems.push({ x, y:gy, baseY:gy, color:tasks[ti].iconColor, taskIndex:ti, collected:false, bob:Math.random()*Math.PI*2 });
-        prevX=x; prevTier=tt;
-      } else {
-        // overflow: stack straight up in the air above the column (no extra walking) + a vine to climb
-        const gy=Math.max(TOP_SAFE+10, tierY(3) - row*48);
-        platforms.push({ x:x-STEP_W/2, y:gy+24, w:STEP_W, type:PLAT_TYPES[(col+row)%PLAT_TYPES.length] });
-        vines.push({ x:x, top:0, len:gy+18 });
-        gems.push({ x, y:gy, baseY:gy, color:tasks[ti].iconColor, taskIndex:ti, collected:false, bob:Math.random()*Math.PI*2 });
-      }
-    });
-    const treeX = WORLD_W - 480;
-    if(cookIdx.length) buildTreehouse(treeX, cookIdx);      // 🍳 kitchen treehouse for cooking tasks
-    buildForestBeyond(slotMin + Math.min(pathIdx.length,COLS)*GEM_SPACING, treeX - 260);
-    scatterTerrain(150, WORLD_W-220);                       // stumps/rocks/bridges/vines within the capped strip
-    // loose decorative gems along the ground (capped)
-    for(let x=480; x<WORLD_W-360; x+=240+((x*13)%150)){
-      gems.push({ x, y:groundY-24, baseY:groundY-24, color:GEM_COLORS[(x|0)%GEM_COLORS.length], taskIndex:-1, free:true, collected:false, bob:Math.random()*Math.PI*2 });
     }
   }
   // add one task live — a new gem (with its step) pops in immediately
@@ -1539,8 +1514,8 @@
       drawTaskIcon(tk.icon, g.x, g.y, r, tk.iconColor);
       drawFaceOn(g.x, g.y, r, g.bob);
 
-      ctx.font='700 24px Quicksand,sans-serif';      // 2x bigger, wraps onto multiple rows
-      const maxW=260, lineH=27, padX=11, padY=6;
+      ctx.font='700 18px Quicksand,sans-serif';      // 25% smaller, wraps onto multiple rows
+      const maxW=240, lineH=21, padX=10, padY=5;
       const words=tk.text.split(' ');
       const lines=[]; let cur='';
       for(const w of words){ const test=cur?cur+' '+w:w;
@@ -2066,6 +2041,21 @@
         // glossy highlight
         gloss(-r*0.32,-r*0.2,r*0.5,r*0.12,0,0.5);
         ctx.restore(); break; }
+      case 'bill': {
+        ctx.save(); ctx.rotate(-0.12);
+        // a little stack for 3D depth
+        for(let k=2;k>=0;k--){
+          const oy=k*r*0.16, ox=k*r*0.1;
+          ctx.fillStyle=shade('#2f9c54',-6-k*8); roundRect(-r*0.92+ox,-r*0.5+oy,r*1.84,r*1.0,r*0.1);
+        }
+        ctx.fillStyle=grad(r*0.9); roundRect(-r*0.92,-r*0.5,r*1.84,r*1.0,r*0.1);   // top bill
+        ctx.fillStyle='#2c8a4c'; ctx.beginPath(); ctx.arc(0,0,r*0.34,0,Math.PI*2); ctx.fill();      // center seal
+        ctx.fillStyle='#eafff0'; ctx.font='800 '+(r*0.5|0)+'px Quicksand,sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+        ctx.fillText('$', 0, r*0.02);
+        ctx.fillStyle='#2c8a4c'; ctx.beginPath(); ctx.arc(-r*0.7,-r*0.3,r*0.12,0,Math.PI*2); ctx.arc(r*0.7,r*0.3,r*0.12,0,Math.PI*2); ctx.fill();  // corner marks
+        ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+        gloss(-r*0.5,-r*0.36,r*0.5,r*0.12,0,0.4);
+        ctx.restore(); break; }
       case 'dumbbell': {
         ctx.save(); ctx.rotate(-0.5);
         ctx.fillStyle=shade(color,-12); roundRect(-r*0.28,-r*0.16,r*0.56,r*0.32,r*0.08);   // handle bar
@@ -2238,7 +2228,7 @@
   }
   // 16 hourly wooden posts (8:00 AM → 11:00 PM), each with a wooden time sign in the middle
   function drawTimePosts(){
-    const n=16, topY=104;
+    const n=N_HOURS, topY=104;
     ctx.save(); ctx.translate(-cam,0);
     for(let i=0;i<n;i++){
       const x=(i+0.5)*WORLD_W/n;
@@ -2247,9 +2237,9 @@
       ctx.fillStyle='#7a4e2e'; ctx.fillRect(x-4, topY, 8, groundY-topY);
       ctx.fillStyle='#9a6a3c'; ctx.fillRect(x-4, topY, 3, groundY-topY);
       // time label
-      const hr=8+i, ap=hr<12?'AM':'PM'; let h12=hr%12; if(h12===0) h12=12;
+      const hr=START_HOUR+i, ap=hr<12?'AM':'PM'; let h12=hr%12; if(h12===0) h12=12;
       const label=h12+':00 '+ap;
-      const sy=(topY+groundY)/2;
+      const sy=(topY+groundY)/2 - 0.2*(groundY-topY);   // 20% higher up the post
       ctx.font='800 14px Quicksand,sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
       const sw=ctx.measureText(label).width+22, sh=30;
       ctx.fillStyle='#5b3a22'; roundRect(x-sw/2-3, sy-sh/2-3, sw+6, sh+6, 8);   // frame
@@ -2299,7 +2289,7 @@
     // hourly time sticks (8 AM → 11 PM)
     miniCtx.strokeStyle='rgba(160,110,60,.85)'; miniCtx.lineWidth=1.4;
     miniCtx.fillStyle='rgba(233,211,176,.9)'; miniCtx.font='7px Quicksand,sans-serif'; miniCtx.textAlign='center';
-    for(let i=0;i<16;i++){ const tx=((i+0.5)*WORLD_W/16)*sx; const hr=8+i; const h12=(hr%12)||12;
+    for(let i=0;i<N_HOURS;i++){ const tx=((i+0.5)*WORLD_W/N_HOURS)*sx; const hr=START_HOUR+i; const h12=(hr%12)||12;
       miniCtx.beginPath(); miniCtx.moveTo(tx,2); miniCtx.lineTo(tx,ch-2); miniCtx.stroke();
       miniCtx.fillText(h12+(hr<12?'a':'p'), tx, 8); }
     miniCtx.strokeStyle='rgba(255,255,255,.35)'; miniCtx.lineWidth=1; miniCtx.strokeRect(cam*sx,0.5,W*sx,ch-1);
