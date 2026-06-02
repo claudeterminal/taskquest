@@ -272,9 +272,9 @@
   }
   #teToggle.on{background:var(--gold);color:#0a241b;}
   .minbtn{
-    cursor:pointer;float:right;background:rgba(255,255,255,.14);
+    cursor:pointer;float:right;margin-left:auto;pointer-events:auto;background:rgba(255,255,255,.14);
     border:1.5px solid rgba(255,255,255,.3);border-radius:8px;
-    color:#fff;font-size:14px;font-weight:800;line-height:1;padding:2px 9px;margin-left:6px;
+    color:#fff;font-size:14px;font-weight:800;line-height:1;padding:2px 9px;
   }
   .minbtn:hover{background:rgba(255,255,255,.26);}
   #hud.min > *:not(h2){display:none !important;}
@@ -397,7 +397,7 @@
   <div id="nameCardName">Player</div>
   <div id="nameCardEdit">✎ click to edit</div>
 </div>
-<div id="mpBadge">👥 Multiplayer · <span id="mpCount">1</span><span id="mpMe"></span></div>
+<div id="mpBadge">👥 users: <span id="mpCount">1</span></div>
 <div id="mpNames"></div>
 
 <!-- collected log (top left, under multiplayer) -->
@@ -696,10 +696,22 @@
       i++;
     }
   }
-  const TASKS_PER_HOUR = 12;   // tasks ride the lower platforms of each hour block
+  // rebuild the flat tasks[] back into hour-sectioned text (preserves which hour each task is in)
+  function serializeTasks(){
+    const out=[];
+    for(let h=0; h<N_HOURS; h++) out.push(tasks.filter(t=>t.hour===h).map(t=>t.text).join('\n'));
+    return out.join('\n'+HOUR_SEP+'\n');
+  }
   function buildLevel(taskList){
-    tasks = taskList.map((t,i)=>{ const ic=taskIcon(t);
-      return { text:t, color:GEM_COLORS[i % GEM_COLORS.length], iconColor:ic.color, icon:ic.icon, emoji:ic.emoji, done:false, type:classifyType(t) }; });
+    // taskList lines may include '===' section markers → each task gets the hour of its section
+    tasks = [];
+    let hr = 0;
+    (taskList||[]).forEach(line=>{
+      const t=(line||'').trim(); if(!t) return;
+      if(/^=+$/.test(t)){ hr++; return; }
+      const ic=taskIcon(t);
+      tasks.push({ text:t, color:GEM_COLORS[tasks.length % GEM_COLORS.length], iconColor:ic.color, icon:ic.icon, emoji:ic.emoji, done:false, type:classifyType(t), hour:Math.min(hr, N_HOURS-1) });
+    });
     platforms = []; gems = []; vines = []; structures = [];
     // ---- time axis: N_HOURS half-screen blocks; each block is a staggered cluster of platforms ----
     const HOUR_W = Math.max(700, Math.round(W*0.5));
@@ -709,10 +721,14 @@
     const pw = 126;
     const doorL = leftDoorX + DOOR_W + 50, doorR = rightDoorX - 50;
     const fracs = [0.12, 0.32, 0.68, 0.88];          // 2 left + 2 right of the centre stick (0.5)
+    const byHour = {};
+    tasks.forEach((tk,idx)=>{ (byHour[tk.hour]=byHour[tk.hour]||[]).push(idx); });
     for(let h=0; h<N_HOURS; h++){
-      // 20 platform slots: 5 rows × 4, gently staggered, never on the centre time-line
+      const hourTasks = byHour[h] || [];
+      // platform slots: enough rows to hold every task this hour (min 5 rows × 4 = 20)
+      const rows = Math.max(5, Math.ceil(hourTasks.length/4));
       const slots = [];
-      for(let r=0; r<5; r++){
+      for(let r=0; r<rows; r++){
         const y = groundY - 50 - r*rowGap;
         const jit = (r%2) ? HOUR_W*0.05 : -HOUR_W*0.05;
         for(const f of fracs) slots.push({ x:h*HOUR_W + HOUR_W*f + jit, y, r });
@@ -721,9 +737,9 @@
         if(s.x < doorL || s.x > doorR) return;       // keep warp doors clear
         platforms.push({ x:s.x-pw/2, y:s.y, w:pw, type:'ledge' });
         if(s.r >= 2) vines.push({ x:s.x, top:0, len:s.y-6 });   // vines to reach the upper rows
-        const k = h*TASKS_PER_HOUR + si;             // first 12 slots (lower rows) carry this hour's tasks
-        if(si < TASKS_PER_HOUR && k < tasks.length){
-          gems.push({ x:s.x, y:s.y-30, baseY:s.y-30, color:tasks[k].iconColor, taskIndex:k, collected:false, bob:Math.random()*Math.PI*2 });
+        if(si < hourTasks.length){
+          const ti=hourTasks[si];
+          gems.push({ x:s.x, y:s.y-30, baseY:s.y-30, color:tasks[ti].iconColor, taskIndex:ti, collected:false, bob:Math.random()*Math.PI*2 });
         }
       });
       // 10 free gems sprinkled through the hour for a lively look
@@ -739,15 +755,17 @@
   function addTask(text){
     text = (text||'').trim(); if(!text) return;
     const ic = taskIcon(text);
-    tasks.push({ text, color:GEM_COLORS[tasks.length % GEM_COLORS.length], iconColor:ic.color, icon:ic.icon, emoji:ic.emoji, done:false, type:classifyType(text) });
+    const HW = WORLD_W/N_HOURS;
+    const hr = Math.max(0, Math.min(N_HOURS-1, Math.floor((player.x)/Math.max(1,HW))));   // the hour block you're standing in
+    tasks.push({ text, color:GEM_COLORS[tasks.length % GEM_COLORS.length], iconColor:ic.color, icon:ic.icon, emoji:ic.emoji, done:false, type:classifyType(text), hour:hr });
     const i=tasks.length-1;
-    undoStack.push(()=>{ if(i===tasks.length-1){ tasks.pop(); gems=gems.filter(gm=>gm.taskIndex!==i); progress.tasksText=tasks.map(t=>t.text).join('\n'); const bx=document.getElementById('taskBox'); if(bx) bx.value=progress.tasksText; scheduleSave(); buildHud(); } });
+    undoStack.push(()=>{ if(i===tasks.length-1){ tasks.pop(); gems=gems.filter(gm=>gm.taskIndex!==i); progress.tasksText=serializeTasks(); const bx=document.getElementById('taskBox'); if(bx) bx.value=progress.tasksText; scheduleSave(); buildHud(); } });
     // drop the new icon right where the player is standing
     const x = Math.max(120, Math.min(WORLD_W-120, player.x + player.w/2));
     const gy = groundY-30;
     gems.push({ x, y:gy, baseY:gy, color:ic.color, taskIndex:i, collected:false, bob:Math.random()*Math.PI*2 });
     burst(x, gy, ic.color);
-    progress.tasksText = tasks.map(t=>t.text).join('\n');
+    progress.tasksText = serializeTasks();
     const box=document.getElementById('taskBox'); if(box) box.value = progress.tasksText;
     scheduleSave();
     buildHud();
@@ -759,7 +777,7 @@
     onGround:false, facing:1, squash:1, coyote:0, jumpBuf:0, blink:0, bob:0, jumps:2, say:null, onVine:null, releaseT:0
   };
 
-  const GRAV = 0.9, MOVE = 5.0, FRICTION = 0.78, JUMP = -18.5, MAXFALL = 22;
+  const GRAV = 0.9, MOVE = 15.0, FRICTION = 0.78, JUMP = -18.5, MAXFALL = 22;
   const keys = {};
   window.addEventListener('keydown', e=>{
     if(e.target.tagName==='TEXTAREA' || e.target.tagName==='INPUT') return;  // typing, not playing
@@ -1131,6 +1149,7 @@
     let nearGem = null, nearDist = 1e9;
     for(const g of gems){
       if(g.collected) continue;
+      if(!g.free && tasks[g.taskIndex] && tasks[g.taskIndex].done) continue;   // finished tasks are inert ghosts
       if(!g.free && !typeShown(tasks[g.taskIndex].type)) continue;
       if(g.flying) continue;
       g.bob += 0.05;
@@ -1491,9 +1510,18 @@
   function drawGems(){
     ctx.save(); ctx.translate(-cam,0);
     gems.forEach(g=>{
-      if(g.collected) return;
-      if(!g.free && !typeShown(tasks[g.taskIndex].type)) return;
       if(g.x - cam < -120 || g.x - cam > W+120) return;
+      if(g.free){ if(g.collected) return; }
+      else {
+        const dtk=tasks[g.taskIndex];
+        if(!typeShown(dtk.type)) return;
+        if(g.collected || dtk.done){              // finished task lingers as a faint 10% ghost
+          ctx.save(); ctx.globalAlpha=0.10;
+          drawTaskIcon(dtk.icon, g.x, g.y, 22, dtk.iconColor, dtk.emoji);
+          ctx.restore();
+          return;
+        }
+      }
       const r = g.free ? 8 : 22;   // free gems tiny; task icons (25% smaller)
       const tk = g.free ? null : tasks[g.taskIndex];
       const glowCol = g.free ? g.color : tk.iconColor;
@@ -2414,7 +2442,7 @@
     const ic = taskIcon(nv);
     tasks[i].icon = ic.icon; tasks[i].emoji = ic.emoji; tasks[i].iconColor = ic.color; tasks[i].type = classifyType(nv);
     for(const g of gems){ if(g.taskIndex===i) g.color = ic.color; }
-    progress.tasksText = tasks.map(t=>t.text).join('\n');
+    progress.tasksText = serializeTasks();
     const bx=document.getElementById('taskBox'); if(bx) bx.value = progress.tasksText;
     scheduleSave();
     buildHud();
@@ -2505,43 +2533,28 @@
   // ---------- persistence (keeps your progress & coins) ----------
   let CURRENT_USER = (()=>{ try{ return localStorage.getItem('frogquest_currentUser')||''; }catch(e){ return ''; } })();
   const progKey = () => 'frogquest' + (CURRENT_USER ? '_'+CURRENT_USER : '');
-  const DAILY_TASKS = [
-    // 7 AM
-    '🚽 Urinate','💧 Water','🌅 Wake / Start Day','🧠 Plan Day','🫁 Breathe','🪥 Brush Teeth','👓 Glasses','🚿 Wash Face','💊 Supplements','🧘 Stretch','🎯 Focus Setup','📱 Light Task',
-    // 8 AM
-    '🚽 Urinate','💧 Water','🗑️ Take Out Trash','🗑️ Trash','🛑 STOP! Breath','🍵 Make Tea','🔥 Boil Tea','🍵 Tea Prep','🌿 Outdoor / Isolate','🏃 Exercise','🌿 Outdoor','💃 Dance',
-    // 9 AM
-    '🚽 Urinate','💧 Water','🎵 Music Task','🗑️ Trash','🍵 Drink Tea','💪 Arm Exercises','🍵 Tea','📱 Work Social','🚿 Wash Face','🎯 Focus','🚿 Wash Face','🎯 Focus',
-    // 10 AM
-    '🚽 Urinate','💧 Water','💇 Hair Serum','🎯 Focus','💊 Xanax','🧪 Test','🍳 Meal','🍳 Meal','🍒 Cranberry','💊 L-Glutamine','🍎 Fruit','🦷 Floss',
-    // 11 AM
-    '🚽 Urinate','💧 Water','🫁 Breathe','🩳 Shorts','⌚ Watch','⌚ Wear Watch','🍽️ Eat','☀️ Walk','☀️ Walk','☀️ Walk','☀️ Walk','🧘 Stretch',
-    // 12 PM
-    '🚽 Urinate','💧 Water','💄 Makeup','💄 Makeup','👕 Dress','🧾 Taxes','🦠 Probiotic','🛑 Breath','⚠️ Med Warning','👕 Clothing','📧 Email','💊 Xanax',
-    // 1 PM
-    '🚽 Urinate','💧 Water','📧 Email','💊 Supplements','📍 Reminders','💊 Meds','🦷 Floss','🍳 Meal','🍳 Meal','💊 Supplements','🍵 Tea','👕 Dress',
-    // 2 PM
-    '🚽 Urinate','💧 Water (last)','💊 Meds','⏰ Reminder','🦷 Floss','🎧 Music','📧 Work','💊 Xanax','🧴 Sunscreen','🎒 Pack','🦷 Floss','🧾 Task',
-    // 3 PM
-    '🚽 Urinate','🔁 Reset','🎯 Focus','🎯 Focus','📱 Work','📱 Work','🧠 Think','📧 Email','🎯 Focus','🎯 Focus','🚶 Move','💧 Water',
-    // 4 PM
-    '🚽 Urinate','🔁 Reset','🎯 Focus','🎯 Focus','📱 Work','📱 Work','🧠 Think','📧 Email','🎯 Focus','🎯 Focus','🚶 Move','💧 Water',
-    // 5 PM
-    '🚽 Urinate','🔁 Reset','🌿 Outdoor','🌿 Outdoor','🧘 Stretch','🧘 Stretch','🍽️ Dinner Prep','🍽️ Cook','🍽️ Cook','🍽️ Eat','🍽️ Eat','🧼 Clean',
-    // 6 PM
-    '🚽 Urinate','🔁 Reset','🧼 Clean','🧼 Clean','📱 Light Task','📱 Light Task','🎧 Music','🎧 Music','🧠 Reflect','🧠 Reflect','🚶 Walk','🚶 Walk',
-    // 7 PM
-    '🚽 Urinate','🔁 Reset','🦷 Floss','🪥 Brush','🚿 Wash Face','💄 Groom','📱 Chill','📱 Chill','🎧 Music','🎧 Music','🧠 Reflect','🧠 Reflect',
-    // 8 PM
-    '🚽 Urinate','🔁 Reset','🍽️ Snack','🍽️ Snack','🧼 Clean','🧼 Clean','📱 Chill','📱 Chill','🎬 Watch','🎬 Watch','🧘 Relax','🧘 Relax',
-    // 9 PM
-    '🚽 Urinate','🔁 Reset','🔌 Unplug','🔌 Unplug','📓 Journal','📓 Journal','🧠 Reflect','🧠 Reflect','🛏️ Wind Down','🛏️ Wind Down','🌙 Sleep Prep','🌙 Sleep Prep',
-    // 10 PM
-    '🚽 Urinate','🔁 Reset','🦷 Floss','🪥 Brush Teeth','🚿 Wash Face','🧴 Night Serum','💊 Night Meds','📓 Journal','🧘 Relax','📵 Phone Away','🛏️ Get in Bed','🌙 Dim Lights',
-    // 11 PM
-    '🚽 Urinate','💧 Sip Water','🫁 Breathe','🧠 Reflect','📓 Gratitude','🛏️ Lie Down','🌙 Eyes Closed','😴 Sleep','😴 Sleep','😴 Sleep','😴 Sleep','😴 Sleep'
-  ].join('\n');
-  const TASK_VERSION = 'schedule-v2';
+  const DAILY_SCHEDULE = [
+    /* 7 AM*/ ['🚽 Urinate','💧 Water','🌅 Wake / Start Day','🧠 Plan Day','🫁 Breathe','🪥 Brush Teeth','👓 Glasses','🚿 Wash Face','💊 Supplements','🧘 Stretch','🎯 Focus Setup','📱 Light Task'],
+    /* 8 AM*/ ['🚽 Urinate','🪥 Brush Teeth','💧 Water (125 ml)','👓 Contacts','💊 L Glutamine','🚽 Excrete','🥚 Eat 4 egg whites','🚿 Wash Face','💊 Quercetin','💊 Xanax 0.06 mg','🏃 Burn 50 cal','🏃 Burn 50 cal'],
+    /* 9 AM*/ ['🚽 Urinate','💧 Water','🎵 Music Task','🗑️ Trash','🍵 Drink Tea','💪 Arm Exercises','🍵 Tea','📱 Work Social','🚿 Wash Face','🎯 Focus','🚿 Wash Face','🎯 Focus'],
+    /*10 AM*/ ['🚽 Urinate','💧 Water','💇 Hair Serum','🎯 Focus','💊 Xanax','🧪 Test','🍳 Meal','🍳 Meal','🍒 Cranberry','💊 L-Glutamine','🍎 Fruit','🦷 Floss'],
+    /*11 AM*/ ['🚽 Urinate','💧 Water','🫁 Breathe','🩳 Shorts','⌚ Watch','⌚ Wear Watch','🍽️ Eat','☀️ Walk','☀️ Walk','☀️ Walk','☀️ Walk','🧘 Stretch'],
+    /*12 PM*/ ['🚽 Urinate','💧 Water','💄 Makeup','💄 Makeup','👕 Dress','🧾 Taxes','🦠 Probiotic','🛑 Breath','⚠️ Med Warning','👕 Clothing','📧 Email','💊 Xanax','🎁 order mom\'s birthday gift to Taiwan from Amazon'],
+    /* 1 PM*/ ['🚽 Urinate','💧 Water','📧 Email','💊 Supplements','📍 Reminders','💊 Meds','🦷 Floss','🍳 Meal','🍳 Meal','💊 Supplements','🍵 Tea','👕 Dress'],
+    /* 2 PM*/ ['🚽 Urinate','💧 Water (last)','💊 Meds','⏰ Reminder','🦷 Floss','🎧 Music','📧 Work','💊 Xanax','🧴 Sunscreen','🎒 Pack','🦷 Floss','🧾 Task'],
+    /* 3 PM*/ ['🚽 Urinate','🔁 Reset','🎯 Focus','🎯 Focus','📱 Work','📱 Work','🧠 Think','📧 Email','🎯 Focus','🎯 Focus','🚶 Move','💧 Water'],
+    /* 4 PM*/ ['🚽 Urinate','🔁 Reset','🎯 Focus','🎯 Focus','📱 Work','📱 Work','🧠 Think','📧 Email','🎯 Focus','🎯 Focus','🚶 Move','💧 Water'],
+    /* 5 PM*/ ['🚽 Urinate','🔁 Reset','🌿 Outdoor','🌿 Outdoor','🧘 Stretch','🧘 Stretch','🍽️ Dinner Prep','🍽️ Cook','🍽️ Cook','🍽️ Eat','🍽️ Eat','🧼 Clean'],
+    /* 6 PM*/ ['🚽 Urinate','🔁 Reset','🧼 Clean','🧼 Clean','📱 Light Task','📱 Light Task','🎧 Music','🎧 Music','🧠 Reflect','🧠 Reflect','🚶 Walk','🚶 Walk'],
+    /* 7 PM*/ ['🚽 Urinate','💧 Water (1625 ml)','🤚 1 item off ground','🤚 1 item off ground','🤚 1 item off ground','🤚 1 item off ground','🤚 1 item off ground','🤚 1 item off ground','🤚 1 item off ground','🤚 1 item off ground'],
+    /* 8 PM*/ ['🚽 Urinate','🔁 Reset','🍽️ Snack','🍽️ Snack','🧼 Clean','🧼 Clean','📱 Chill','📱 Chill','🎬 Watch','🎬 Watch','🧘 Relax','🧘 Relax'],
+    /* 9 PM*/ ['🚽 Urinate','🔁 Reset','🔌 Unplug','🔌 Unplug','📓 Journal','📓 Journal','🧠 Reflect','🧠 Reflect','🛏️ Wind Down','🛏️ Wind Down','🌙 Sleep Prep','🌙 Sleep Prep'],
+    /*10 PM*/ ['🚽 Urinate','🔁 Reset','🦷 Floss','🪥 Brush Teeth','🚿 Wash Face','🧴 Night Serum','💊 Night Meds','📓 Journal','🧘 Relax','📵 Phone Away','🛏️ Get in Bed','🌙 Dim Lights'],
+    /*11 PM*/ ['🚽 Urinate','💧 Sip Water','🫁 Breathe','🧠 Reflect','📓 Gratitude','🛏️ Lie Down','🌙 Eyes Closed','😴 Sleep','😴 Sleep','😴 Sleep','😴 Sleep','😴 Sleep']
+  ];
+  const HOUR_SEP = '===';
+  const DAILY_TASKS = DAILY_SCHEDULE.map(h=>h.join('\n')).join('\n'+HOUR_SEP+'\n');
+  const TASK_VERSION = 'schedule-v5';
   const today = () => new Date().toDateString();
   let progress = { name:'', color:null, coins:0, tasksText:'', done:{}, day:'', taskVersion:'' };
   let saveTimer=null;
@@ -2573,11 +2586,12 @@
   // ---------- flow ----------
   function startGame(){
     const raw = document.getElementById('taskBox').value
-      .split('\n').map(s=>s.trim()).filter(Boolean).slice(0,60);
+      .split('\n').map(s=>s.trim()).filter(Boolean).slice(0,400);   // room for the full hourly schedule
     const list = raw.length ? raw : ['Take one small step'];
     progress.tasksText = list.join('\n');
     resize();
     buildLevel(list);
+    progress.tasksText = serializeTasks();
     buildAtmosphere(); buildScenery();
     player.x=120; player.y=groundY-player.h; player.vx=0; player.vy=0;
     player.name = progress.name || '';
@@ -2655,8 +2669,6 @@
       const cnt=Object.keys(others).length+1;
       const c=document.getElementById('mpCount');
       if(c) c.textContent=cnt;
-      const me=document.getElementById('mpMe');
-      if(me) me.textContent = player.name ? ' · '+player.name : '';
       // names panel (top-left): you + everyone else online
       const np=document.getElementById('mpNames');
       if(np){
@@ -2751,11 +2763,58 @@
     // Shift+Enter falls through → inserts a normal new line
   });
   // top-left quick add — type a task and press Enter to drop it in right away
+  // ---- natural-language commands for the Add box (local, no API) ----
+  function hoursInClock(a,b){ const out=[]; for(let hr=a; hr<=b; hr++){ const off=hr-START_HOUR; if(off>=0&&off<N_HOURS) out.push(off); } return out; }
+  function parseTaskTimes(s){
+    const t=s.toLowerCase();
+    if(/\b(every|each)\s+hour\b|\bhourly\b/.test(t)) return hoursInClock(START_HOUR, START_HOUR+N_HOURS-1);
+    if(/\b(every|each)\s+morning\b|\bmornings\b/.test(t)) return hoursInClock(7,11);
+    if(/\b(every|each)\s+afternoon\b|\bafternoons\b/.test(t)) return hoursInClock(12,17);
+    if(/\b(every|each)\s+(evening|night)\b|\bevenings\b|\bnights\b/.test(t)) return hoursInClock(18,23);
+    const m=t.match(/\bat\s*(\d{1,2})\s*(?::\d{2})?\s*(am|pm)?\b/);
+    if(m){ let hr=parseInt(m[1],10); const ap=m[2];
+      if(ap==='pm'&&hr<12) hr+=12; else if(ap==='am'&&hr===12) hr=0;
+      else if(!ap && hr>=1 && hr<=6) hr+=12;   // "at 3" → 3 PM (within the 7am–11pm day)
+      const off=hr-START_HOUR; if(off>=0&&off<N_HOURS) return [off]; }
+    return null;
+  }
+  function cleanTaskText(s){
+    return s.replace(/^\s*add\s+(a\s+task\s*(to|for)?\s*)?/i,'')
+            .replace(/\b(every|each)\s+(hour|morning|afternoon|evening|night)s?\b/ig,'')
+            .replace(/\bhourly\b/ig,'')
+            .replace(/\bat\s*\d{1,2}\s*(?::\d{2})?\s*(am|pm)?\b/ig,'')
+            .replace(/[:\-]\s*$/,'').replace(/^\s*[:\-]\s*/,'')
+            .replace(/\s{2,}/g,' ').trim();
+  }
+  function addTaskToHours(text, hours){
+    text=(text||'').trim(); if(!text || !hours || !hours.length) return;
+    const set=new Set(hours);
+    const sections=[];
+    for(let h=0; h<N_HOURS; h++){
+      const seg=tasks.filter(t=>t.hour===h).map(t=>t.text);
+      if(set.has(h)) seg.push(text);
+      sections.push(seg.join('\n'));
+    }
+    const txt=sections.join('\n'+HOUR_SEP+'\n');
+    progress.tasksText=txt;
+    const bx=document.getElementById('taskBox'); if(bx) bx.value=txt;
+    buildLevel(txt.split('\n'));
+    tasks.forEach(tk=>{ if(progress.done && progress.done[tk.text]) tk.done=true; });
+    scheduleSave(); buildHud();
+    const HW=WORLD_W/N_HOURS;
+    hours.forEach(h=>burst(h*HW+HW*0.5, groundY-70, '#ffe9a8'));
+    beep(1320,.05,'sine',.04); beep(1760,.06,'sine',.03);
+  }
   document.getElementById('quickAdd').addEventListener('keydown', e=>{
     if(e.key==='Enter'){
       e.preventDefault();
       const v=e.target.value.trim();
-      if(v){ addTask(v); e.target.value=''; }
+      if(v){
+        const hrs=parseTaskTimes(v);
+        if(hrs && hrs.length){ addTaskToHours(cleanTaskText(v), hrs); }
+        else addTask(v);
+        e.target.value='';
+      }
       e.target.blur();                 // give control back to the game → arrows move right away
     } else if(e.key==='Escape'){ e.target.value=''; e.target.blur(); }
   });
