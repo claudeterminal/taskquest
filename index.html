@@ -511,8 +511,8 @@
                     'message','order','apply','book ','research','google','website','check '];
     return online.some(k => t.includes(k)) ? 'online' : 'move';
   }
-  const PLAT_TYPES = ['mushroom','rock','branch','stump','flower','lilypad','log','leaf'];
-  const GEM_SPACING = 150;   // compact — tasks packed tightly as they climb
+  const PLAT_TYPES = ['mushroom','rock','branch','stump','lilypad','log','leaf'];   // no flowers
+  const GEM_SPACING = 240;   // spread tasks out more (checkered, breathing room)
   const STEP_W = 108;
   const CEIL = 44;                                        // top of the page — can't climb past this
   const TOP_SAFE = 120;                                   // keep tasks/stumps below the top UI (minimap + buttons)
@@ -520,11 +520,11 @@
   function recomputeTiers(){ TIER_GAP = Math.min(80, Math.max(52, (groundY - TOP_SAFE - 30)/3)); }
   const tierY = (tt) => Math.max(TOP_SAFE, groundY - (14 + tt*TIER_GAP));   // lower bottom row; never into the top buttons
   // deterministic gentle wander so neighbours never differ by more than one tier (no big hops)
-  const TIER_PATTERN = [0,1,2,3,2,1,0,1,2,3,2,1,0,1,2,3,2,1,0,1];   // max tier 3 — stays clear of the top UI
+  const TIER_PATTERN = [0,2,1,3,0,2,1,3,0,2,1,3,0,2,1,3,0,2,1,3];   // checkered low/high alternation
   const tierAt = (i) => TIER_PATTERN[((i%TIER_PATTERN.length)+TIER_PATTERN.length)%TIER_PATTERN.length];
   function addStepsBetween(x0,t0,x1,t1){
     const gap=x1-x0; if(gap<=4) return;
-    const n=Math.max(1, Math.round(gap/118));             // a little step roughly every ~118px
+    const n=Math.max(1, Math.round(gap/230));             // far fewer stepping stones — more spread out
     for(let k=1;k<n;k++){
       const fx=x0+gap*k/n;
       const tt=Math.round(t0+(t1-t0)*k/n);
@@ -629,23 +629,31 @@
   }
   // fill the whole world with lots of varied terrain — many shapes, lengths, heights
   function scatterTerrain(x0,x1){
-    const types=['stump','rock','branch','log','mushroom','lilypad','bridge','flower'];
-    let x=x0;
+    const types=['stump','rock','branch','log','mushroom','lilypad','bridge'];   // no flowers
+    let x=x0, i=0;
     while(x<x1){
       const ty=types[(Math.random()*types.length)|0];
       let w;
-      if(ty==='bridge') w=120+Math.random()*180;
-      else if(ty==='branch') w=140+Math.random()*150;
-      else if(ty==='log') w=110+Math.random()*120;
-      else if(ty==='rock') w=90+Math.random()*110;
-      else w=64+Math.random()*70;
-      // mostly low "bottom" terrain, sometimes a higher ledge for variety
-      const lift = (Math.random()<0.78) ? (26+Math.random()*120) : (150+Math.random()*120);
-      const yy = Math.max(TOP_SAFE, groundY - lift);
-      platforms.push({ x:x, y:yy, w, type:ty });
-      if(Math.random()<0.45) vines.push({ x:x+w*0.5, top:0, len:yy-6 });
-      if(Math.random()<0.28){ const gy=yy-26; gems.push({ x:x+w*0.5, y:gy, baseY:gy, color:GEM_COLORS[(x|0)%GEM_COLORS.length], taskIndex:-1, free:true, collected:false, bob:Math.random()*Math.PI*2 }); }
-      x += w + 28 + Math.random()*90;
+      if(ty==='bridge') w=170+Math.random()*150;
+      else if(ty==='branch') w=150+Math.random()*150;
+      else if(ty==='log') w=120+Math.random()*110;
+      else if(ty==='rock') w=130+Math.random()*120;
+      else w=72+Math.random()*70;
+      if(ty==='rock' || ty==='bridge'){
+        // curved mound sitting on the ground — walk up it, over the top, and back down to the ground
+        const peak = Math.max(TOP_SAFE+20, groundY - (64+Math.random()*92));
+        platforms.push({ x:x, y:peak, w, type:ty, curve:true, baseY:groundY });
+        if(Math.random()<0.22){ const gy=peak-26; gems.push({ x:x+w*0.5, y:gy, baseY:gy, color:GEM_COLORS[(x|0)%GEM_COLORS.length], taskIndex:-1, free:true, collected:false, bob:Math.random()*Math.PI*2 }); }
+      } else {
+        // flat ledge — checkered: alternate a low one then a higher one
+        const lift = (i%2===0) ? (30+Math.random()*46) : (130+Math.random()*90);
+        const yy = Math.max(TOP_SAFE, groundY - lift);
+        platforms.push({ x:x, y:yy, w, type:ty });
+        if(Math.random()<0.32) vines.push({ x:x+w*0.5, top:0, len:yy-6 });
+        if(Math.random()<0.2){ const gy=yy-26; gems.push({ x:x+w*0.5, y:gy, baseY:gy, color:GEM_COLORS[(x|0)%GEM_COLORS.length], taskIndex:-1, free:true, collected:false, bob:Math.random()*Math.PI*2 }); }
+      }
+      x += w + 120 + Math.random()*150;   // big gaps → spread out, room to walk on the ground
+      i++;
     }
   }
   function buildLevel(taskList){
@@ -1047,8 +1055,14 @@
       for(const p of platforms){
         const px = player.x+player.w*0.5;
         if(px > p.x && px < p.x+p.w){
-          const top = p.y;
-          if(player.vy >= 0 && player.y+player.h <= top+player.vy*dt+2 && player.y+player.h >= top-2){
+          const top = surfaceY(p, px);
+          const feet = player.y+player.h;
+          if(p.curve){
+            // walkable slope: snap up onto the curve as you walk up it, and stand while crossing
+            if(player.vy >= 0 && feet >= top-2 && feet <= top+54){
+              player.y = top - player.h; player.vy = 0; player.onGround = true;
+            }
+          } else if(player.vy >= 0 && feet <= top+player.vy*dt+2 && feet >= top-2){
             player.y = top - player.h; player.vy = 0; player.onGround = true;
           }
         }
@@ -1231,6 +1245,13 @@
     ctx.fillStyle='rgba(0,0,0,.12)';
     for(let x=0;x<WORLD_W;x+=40){ ctx.fillRect(x+((x*3)%30), groundY+24+((x*5)%40), 6,6); }
     ctx.restore();
+  }
+  // height of a platform's walkable surface at world-x px (arc for curved mounds, flat otherwise)
+  function surfaceY(p, px){
+    if(!p.curve) return p.y;
+    const t=Math.max(0,Math.min(1,(px-p.x)/p.w));
+    const k=1-Math.pow(2*t-1,2);          // 1 at the centre, 0 at the edges
+    return p.baseY - (p.baseY - p.y)*k;   // p.y = peak (highest point), baseY = ground at the ends
   }
   function drawPlatforms(){
     ctx.save(); ctx.translate(-cam,0);
@@ -2352,8 +2373,7 @@
       progress.taskVersion = TASK_VERSION;
       progress.day = today();
     } else if(progress.day !== today()){
-      // new day → all task gems reset (fresh start), keep your list & coins
-      progress.done = {};
+      // new day → keep EVERYTHING: the list, the completed ones, and the ones still left to do
       progress.day = today();
     }
     saveProgress();
