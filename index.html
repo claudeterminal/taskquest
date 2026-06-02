@@ -540,7 +540,7 @@
                     'message','order','apply','book ','research','google','website','check '];
     return online.some(k => t.includes(k)) ? 'online' : 'move';
   }
-  const PLAT_TYPES = ['mushroom','rock','branch','stump','lilypad','log','leaf'];   // no flowers
+  const PLAT_TYPES = ['branch','stump','log','leaf','lilypad'];   // brown & green only
   const GEM_SPACING = 240;   // spread tasks out more (checkered, breathing room)
   const STEP_W = 108;
   const CEIL = 44;                                        // top of the page — can't climb past this
@@ -665,7 +665,7 @@
   }
   // fill the whole world with lots of varied terrain — many shapes, lengths, heights
   function scatterTerrain(x0,x1){
-    const types=['stump','rock','branch','log','mushroom','lilypad','bridge'];   // no flowers
+    const types=['stump','rock','branch','log','lilypad','bridge'];   // brown & green only
     let x=x0, i=0;
     while(x<x1){
       const ty=types[(Math.random()*types.length)|0];
@@ -702,13 +702,16 @@
     const HOUR_W = Math.max(700, Math.round(W*0.5));
     WORLD_W = HOUR_W * 16;
     leftDoorX = 14; rightDoorX = WORLD_W - DOOR_W - 14;
-    // 15 low hop-on platforms inside every hour slot (room for up to 15 tasks per hour)
+    // 15 hop-on platforms inside every hour slot, climbing from the ground up to ~90% of the screen
     for(let h=0; h<16; h++){
       const slotW=HOUR_W/15;
+      const yBottom = groundY - 40;
+      const yTop = Math.max(90, H*0.10);               // ~90% up toward the top of the screen
       for(let s=0; s<15; s++){
         const x = h*HOUR_W + (s+0.5)*slotW;
-        const yy = groundY - (40 + (s%2)*34);          // alternate two low heights → easy hops
+        const yy = yBottom - (s/14)*(yBottom - yTop);  // staircase climbing upward
         platforms.push({ x:x-slotW*0.36, y:yy, w:slotW*0.72, type:PLAT_TYPES[(h+s)%PLAT_TYPES.length] });
+        if(s>=8) vines.push({ x:x, top:0, len:yy-6 });  // a vine to reach the higher steps
       }
     }
     const slotMin = 360, slotMax = WORLD_W - 360;
@@ -1344,16 +1347,15 @@
   }
   function drawRock(p){
     if(p.curve){
-      // smooth boulder mound rising out of the ground
-      ctx.fillStyle='#737a8d'; ctx.beginPath(); ctx.moveTo(p.x,p.baseY);
+      // smooth green grassy hill rising out of the ground
+      ctx.fillStyle='#3f9c57'; ctx.beginPath(); ctx.moveTo(p.x,p.baseY);
       for(let s=0;s<=24;s++){ const px=p.x+p.w*s/24; ctx.lineTo(px, surfaceY(p,px)); }
       ctx.lineTo(p.x+p.w,p.baseY); ctx.closePath(); ctx.fill();
-      const mx=p.x+p.w*0.5;
-      ctx.strokeStyle='rgba(40,45,60,.4)'; ctx.lineWidth=2;          // a crack
-      ctx.beginPath(); ctx.moveTo(mx-6,surfaceY(p,mx)+10); ctx.lineTo(mx+5,p.baseY-6); ctx.stroke();
-      ctx.strokeStyle='#3fa35e'; ctx.lineWidth=6; ctx.lineCap='round'; ctx.beginPath();   // mossy crest
+      ctx.strokeStyle='#56c47a'; ctx.lineWidth=6; ctx.lineCap='round'; ctx.beginPath();   // grassy crest
       for(let s=0;s<=24;s++){ const px=p.x+p.w*s/24, sy=surfaceY(p,px)-1; if(s===0)ctx.moveTo(px,sy); else ctx.lineTo(px,sy); }
       ctx.stroke();
+      ctx.strokeStyle='#2f8048'; ctx.lineWidth=2;                    // a few grass blades
+      const mx=p.x+p.w*0.5; for(const o of [-p.w*0.2,0,p.w*0.2]){ const gx=mx+o, gyT=surfaceY(p,gx); ctx.beginPath(); ctx.moveTo(gx,gyT); ctx.lineTo(gx-3,gyT-9); ctx.moveTo(gx,gyT); ctx.lineTo(gx+3,gyT-9); ctx.stroke(); }
       return;
     }
     roundRect(p.x,p.y,p.w,34,16,'#6f7689');
@@ -2640,6 +2642,8 @@
       const cnt=Object.keys(others).length+1;
       const c=document.getElementById('mpCount');
       if(c) c.textContent=cnt;
+      const me=document.getElementById('mpMe');
+      if(me) me.textContent = player.name ? ' · '+player.name : '';
       // names panel (top-left): you + everyone else online
       const np=document.getElementById('mpNames');
       if(np){
