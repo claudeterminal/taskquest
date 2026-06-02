@@ -702,16 +702,29 @@
     const HOUR_W = Math.max(700, Math.round(W*0.5));
     WORLD_W = HOUR_W * 16;
     leftDoorX = 14; rightDoorX = WORLD_W - DOOR_W - 14;
-    // 15 hop-on platforms inside every hour slot, climbing from the ground up to ~90% of the screen
-    for(let h=0; h<16; h++){
-      const slotW=HOUR_W/15;
-      const yBottom = groundY - 40;
-      const yTop = Math.max(90, H*0.10);               // ~90% up toward the top of the screen
-      for(let s=0; s<15; s++){
-        const x = h*HOUR_W + (s+0.5)*slotW;
-        const yy = yBottom - (s/14)*(yBottom - yTop);  // staircase climbing upward
-        platforms.push({ x:x-slotW*0.36, y:yy, w:slotW*0.72, type:PLAT_TYPES[(h+s)%PLAT_TYPES.length] });
-        if(s>=8) vines.push({ x:x, top:0, len:yy-6 });  // a vine to reach the higher steps
+    // 15 rounded-rectangle ledges scattered (checkerboard) between each hour's two lines,
+    // spread from the ground up to ~90% of the screen
+    {
+      const cols=3, rows=5;                            // 3 × 5 = 15
+      const colW=HOUR_W/cols;
+      const yBottom=groundY-46;
+      // keep each row within one comfortable jump of the next (tied to the real jump height)
+      const comfyGap=((JUMP*JUMP)/(2*GRAV))*0.78;
+      const spread=Math.min(yBottom-Math.max(90,H*0.10), comfyGap*(rows-1));
+      const doorL=leftDoorX+DOOR_W+50, doorR=rightDoorX-50;   // keep clear of both warp doors
+      for(let h=0; h<16; h++){
+        for(let r=0; r<rows; r++){
+          for(let c=0; c<cols; c++){
+            const stagger=(r%2)?colW*0.5:0;            // checkerboard offset every other row
+            let x = h*HOUR_W + c*colW + colW*0.5 + stagger + (Math.random()*34-17);
+            x = Math.max(h*HOUR_W+46, Math.min((h+1)*HOUR_W-46, x));
+            if(x < doorL || x > doorR) continue;       // never block a warp door / before 8 AM
+            const y = yBottom - (r/(rows-1))*spread + (Math.random()*18-9);
+            const w = colW*0.58;
+            platforms.push({ x:x-w/2, y, w, type:'ledge' });
+            if(r>=3) vines.push({ x:x, top:0, len:y-6 });
+          }
+        }
       }
     }
     const slotMin = 360, slotMax = WORLD_W - 360;
@@ -768,7 +781,7 @@
     onGround:false, facing:1, squash:1, coyote:0, jumpBuf:0, blink:0, bob:0, jumps:2, say:null, onVine:null, releaseT:0
   };
 
-  const GRAV = 0.9, MOVE = 5.0, FRICTION = 0.78, JUMP = -17, MAXFALL = 22;
+  const GRAV = 0.9, MOVE = 5.0, FRICTION = 0.78, JUMP = -18.5, MAXFALL = 22;
   const keys = {};
   window.addEventListener('keydown', e=>{
     if(e.target.tagName==='TEXTAREA' || e.target.tagName==='INPUT') return;  // typing, not playing
@@ -1317,6 +1330,7 @@
         case 'log':      drawLog(p); break;
         case 'bridge':   drawBridge(p); break;
         case 'deck':     drawDeck(p); break;
+        case 'ledge':    drawLedge(p); break;
         default:         drawLeaf(p);
       }
     });
@@ -1336,6 +1350,12 @@
     ctx.fillStyle='#5b3a22'; ctx.beginPath(); ctx.ellipse(p.x+8,p.y+13,6,10,0,0,Math.PI*2); ctx.fill();
     ctx.beginPath(); ctx.ellipse(p.x+p.w-8,p.y+13,6,10,0,0,Math.PI*2); ctx.fill();
     mossTufts(p);
+  }
+  function drawLedge(p){
+    roundRect(p.x, p.y, p.w, 18, 9, '#8a5d36');          // brown rounded body
+    roundRect(p.x, p.y, p.w, 9, 6, '#3f9c57');           // green rounded top
+    ctx.fillStyle='#56c47a'; roundRect(p.x+3, p.y+1, p.w-6, 4, 3);   // grassy highlight
+    ctx.fillStyle='rgba(60,38,20,.25)'; roundRect(p.x+4, p.y+13, p.w-8, 3, 2);  // soft shadow line
   }
   function drawLeaf(p){
     roundRect(p.x,p.y,p.w,22,11,'#1f8a47');
@@ -2741,7 +2761,17 @@
       e.preventDefault();
       const v=e.target.value.trim();
       if(v){ addTask(v); e.target.value=''; }
-    }
+      e.target.blur();                 // give control back to the game → arrows move right away
+    } else if(e.key==='Escape'){ e.target.value=''; e.target.blur(); }
+  });
+  // B) just start typing anywhere → it flows into the Add-a-task box (no clicking needed)
+  window.addEventListener('keydown', e=>{
+    const tag=e.target.tagName;
+    if(tag==='INPUT'||tag==='TEXTAREA') return;          // already typing somewhere
+    if(!running || e.ctrlKey || e.metaKey || e.altKey) return;
+    if(e.key.length!==1 || [' ','z','Z','x','X','d','D'].includes(e.key)) return;   // leave game controls alone
+    const qa=document.getElementById('quickAdd'); if(!qa) return;
+    e.preventDefault(); qa.focus(); qa.value += e.key;
   });
   // chat box in the dirt — say something; it floats over your head and other players see it
   const chatBox=document.getElementById('chatBox');
