@@ -751,6 +751,7 @@
         const jit = (r%2) ? HOUR_W*0.05 : -HOUR_W*0.05;
         for(const f of fracs) slots.push({ x:h*HOUR_W + HOUR_W*f + jit, y, r });
       }
+      const taskSpots=[];
       slots.forEach((s, si)=>{
         if(s.x < doorL || s.x > doorR) return;       // keep warp doors clear
         platforms.push({ x:s.x-pw/2, y:s.y, w:pw, type:'ledge' });
@@ -758,14 +759,20 @@
         if(si < hourTasks.length){
           const ti=hourTasks[si];
           gems.push({ x:s.x, y:s.y-30, baseY:s.y-30, color:tasks[ti].iconColor, taskIndex:ti, collected:false, bob:Math.random()*Math.PI*2 });
+          taskSpots.push({ x:s.x, y:s.y-30 });
         }
       });
-      // 10 free gems sprinkled through the hour for a lively look
-      for(let g=0; g<10; g++){
+      // a free gem must NOT cover a task icon or its name bubble (which floats above it)
+      const clearOfTasks=(gx,gy)=> taskSpots.every(t=> !(Math.abs(gx-t.x)<82 && gy>t.y-165 && gy<t.y+34));
+      let placed=0, tries=0;
+      while(placed<10 && tries<120){
+        tries++;
         const gx = h*HOUR_W + 60 + Math.random()*(HOUR_W-120);
         if(gx < doorL || gx > doorR) continue;
         const gy = groundY - 28 - Math.random()*(groundY-150);
-        gems.push({ x:gx, y:gy, baseY:gy, color:GEM_COLORS[(g+h*3)%GEM_COLORS.length], taskIndex:-1, free:true, collected:false, bob:Math.random()*Math.PI*2 });
+        if(!clearOfTasks(gx,gy)) continue;
+        gems.push({ x:gx, y:gy, baseY:gy, color:GEM_COLORS[(placed+h*3)%GEM_COLORS.length], taskIndex:-1, free:true, collected:false, bob:Math.random()*Math.PI*2 });
+        placed++;
       }
     }
   }
@@ -778,9 +785,9 @@
     tasks.push({ text, color:GEM_COLORS[tasks.length % GEM_COLORS.length], iconColor:ic.color, icon:ic.icon, emoji:ic.emoji, done:false, type:classifyType(text), hour:hr });
     const i=tasks.length-1;
     undoStack.push(()=>{ if(i===tasks.length-1){ tasks.pop(); gems=gems.filter(gm=>gm.taskIndex!==i); progress.tasksText=serializeTasks(); const bx=document.getElementById('taskBox'); if(bx) bx.value=progress.tasksText; scheduleSave(); buildHud(); } });
-    // drop the new icon right where the player is standing
-    const x = Math.max(120, Math.min(WORLD_W-120, player.x + player.w/2));
-    const gy = groundY-30;
+    // drop the new icon right where the player is standing (their actual spot, on platforms too)
+    const x = Math.max(20, Math.min(WORLD_W-20, player.x + player.w/2));
+    const gy = player.y + player.h*0.35;
     gems.push({ x, y:gy, baseY:gy, color:ic.color, taskIndex:i, collected:false, bob:Math.random()*Math.PI*2 });
     burst(x, gy, ic.color);
     progress.tasksText = serializeTasks();
@@ -2576,7 +2583,6 @@
     player.facing = dir; player.squash = 1.5; player.vx += dir*MOVE*1.6;
     burst(g.x, g.y, '#cfe9ff');
     beep(300,.10,'square',.06); beep(170,.22,'sawtooth',.05);    // long whoosh
-    floats.push({x:g.x, y:g.y-26, text:'⏳ DELAY', color:'#ffe07a', life:1.8, vy:-0.5, size:22, bold:true});
     progress.tasksText=serializeTasks();
     const bx=document.getElementById('taskBox'); if(bx) bx.value=progress.tasksText;
     scheduleSave(); buildHud();
@@ -3063,7 +3069,7 @@
 </script>
 <div id="house3d" class="hidden">
   <button id="houseExit">← Back to Quests</button>
-  <div id="houseHint">Click to look around · W/A/S/D or arrows to walk · Esc to release</div>
+  <div id="houseHint">🛏️ Lying in bed · tap “Back to Quests” to return</div>
 </div>
 <script src="https://unpkg.com/three@0.149.0/build/three.min.js"></script>
 <script>
@@ -3124,33 +3130,18 @@
     wrap.insertBefore(cv, wrap.firstChild);
     scene=new THREE.Scene(); scene.background=new THREE.Color(0xcde2f0);
     camera=new THREE.PerspectiveCamera(72, innerWidth/innerHeight, 0.1, 100);
-    camera.rotation.order='YXZ'; camera.position.set(0,1.6,3);
     scene.add(new THREE.HemisphereLight(0xffffff,0x8a8270,1.05));
     const dl=new THREE.DirectionalLight(0xffffff,0.55); dl.position.set(3,7,4); scene.add(dl);
     buildRoom();
-    cv.addEventListener('click',()=>{ if(cv.requestPointerLock) cv.requestPointerLock(); });
-    document.addEventListener('mousemove',e=>{ if(isLocked()){ yaw-=e.movementX*0.0024; pitch-=e.movementY*0.0024; pitch=Math.max(-1.35,Math.min(1.35,pitch)); } });
-    window.addEventListener('resize',()=>{ if(!renderer) return; camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight); });
-    document.addEventListener('keydown',e=>{ keys[e.code]=true; });
-    document.addEventListener('keyup',e=>{ keys[e.code]=false; });
+    // FIXED point of view: you're lying in the bed, looking out across the room. No mouse/look.
+    camera.position.set(0, 0.95, -2.9);
+    camera.lookAt(0, 0.65, 1.2);
+    window.addEventListener('resize',()=>{ if(!renderer) return; camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight); camera.lookAt(0,0.65,1.2); });
   }
   function loop(t){
     raf=requestAnimationFrame(loop);
-    const dt=Math.min(0.05,(t-prevT)/1000||0); prevT=t;
     if(!renderer) return;
-    camera.rotation.set(pitch,yaw,0);
-    const sp=3.2; let f=0,s=0;
-    if(keys['KeyW']||keys['ArrowUp'])f+=1;
-    if(keys['KeyS']||keys['ArrowDown'])f-=1;
-    if(keys['KeyA']||keys['ArrowLeft'])s-=1;
-    if(keys['KeyD']||keys['ArrowRight'])s+=1;
-    const sinY=Math.sin(yaw), cosY=Math.cos(yaw);
-    camera.position.x += (-sinY*f + cosY*s)*sp*dt;
-    camera.position.z += (-cosY*f - sinY*s)*sp*dt;
-    camera.position.x=Math.max(-3.6,Math.min(3.6,camera.position.x));
-    camera.position.z=Math.max(-3.6,Math.min(3.6,camera.position.z));
-    camera.position.y=1.6;
-    renderer.render(scene,camera);
+    renderer.render(scene,camera);   // static bed view
   }
   window.enterHouse=async function(){
     const wrap=document.getElementById('house3d');
@@ -3159,7 +3150,7 @@
     if(!window.THREE){ if(hint) hint.textContent='Loading 3D…'; }
     const ok=await ensureThree();
     if(!ok){ if(hint) hint.textContent='Could not load 3D (need internet). Tap Back.'; return; }
-    if(hint) hint.textContent='Click to look · W/A/S/D or arrows to walk · Esc to release';
+    if(hint) hint.textContent='🛏️ Lying in bed · tap “Back to Quests” to return';
     init(); if(!renderer){ wrap.classList.add('hidden'); return; }
     prevT=performance.now(); cancelAnimationFrame(raf); loop(prevT);
   };
