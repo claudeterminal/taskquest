@@ -397,7 +397,7 @@
   <div id="nameCardName">Player</div>
   <div id="nameCardEdit">✎ click to edit</div>
 </div>
-<div id="mpBadge">👥 users: <span id="mpCount">1</span></div>
+<div id="mpBadge">👥 users: <span id="mpCount">1</span> · <span id="mpName" title="Click to edit your name">✎ name</span></div>
 <div id="mpNames"></div>
 
 <!-- collected log (top left, under multiplayer) -->
@@ -483,7 +483,7 @@
   const WORLD_CAP = 2600;        // hard cap: walking the whole strip stays short (no 5-min treks)
   let groundY = 0;
   // wrap-around doors: walk into the left door, pop out the right one (and vice versa)
-  const DOOR_W = 58, DOOR_H = 96;
+  const DOOR_W = 58, DOOR_H = 96, DOOR_LIFT = 90;   // doors float up → you must hop into them
   let leftDoorX = 14, rightDoorX = 0, doorCd = 0;
 
   const GEM_COLORS = ['#ff5d8f','#5ec8ff','#9d6bff','#ffd75e','#5effb0','#ff9248','#ff5e5e','#7affe0','#c8ff5e','#ff6bd6'];
@@ -635,7 +635,9 @@
     ctx.restore();
   }
   function drawDoor(dx, sign){
-    const y = groundY - DOOR_H;
+    const y = groundY - DOOR_LIFT - DOOR_H;     // floated up off the ground
+    ctx.strokeStyle='rgba(120,80,40,.5)'; ctx.lineWidth=4;                  // post holding it up
+    ctx.beginPath(); ctx.moveTo(dx+DOOR_W/2, y+DOOR_H); ctx.lineTo(dx+DOOR_W/2, groundY); ctx.stroke();
     ctx.fillStyle='#4a2f1b'; roundRect(dx-7,y-10,DOOR_W+14,DOOR_H+10,9);    // stone/wood frame
     ctx.fillStyle='#9b6a39'; roundRect(dx,y,DOOR_W,DOOR_H,7);                // door slab
     ctx.fillStyle='#7d5430';                                                 // recessed panels
@@ -777,7 +779,7 @@
     onGround:false, facing:1, squash:1, coyote:0, jumpBuf:0, blink:0, bob:0, jumps:2, say:null, onVine:null, releaseT:0
   };
 
-  const GRAV = 0.9, MOVE = 15.0, FRICTION = 0.78, JUMP = -18.5, MAXFALL = 22;
+  const GRAV = 0.9, MOVE = 7.5, FRICTION = 0.78, JUMP = -18.5, MAXFALL = 22;
   const keys = {};
   window.addEventListener('keydown', e=>{
     if(e.target.tagName==='TEXTAREA' || e.target.tagName==='INPUT') return;  // typing, not playing
@@ -1091,13 +1093,17 @@
       // wrap-around doors: walk into one, pop out the other end
       if(doorCd>0) doorCd -= dt;
       const pcx = player.x + player.w/2;
-      if(doorCd<=0){
-        if(pcx < leftDoorX + DOOR_W){            // entered the LEFT door → out the RIGHT
+      // doors float up: you must HOP so your body overlaps the raised doorway
+      const doorTop = groundY - DOOR_LIFT - DOOR_H, doorBot = groundY - DOOR_LIFT;
+      const inDoorY = (player.y + player.h > doorTop) && (player.y < doorBot);
+      const doorY = groundY - DOOR_LIFT - DOOR_H/2;
+      if(doorCd<=0 && inDoorY){
+        if(pcx < leftDoorX + DOOR_W){            // hopped into the LEFT door → out the RIGHT
           player.x = rightDoorX - player.w - 6; player.vx=0; doorCd=20;
-          burst(rightDoorX+DOOR_W/2, groundY-DOOR_H/2, '#ffe9a8'); beep(520,.08,'sine',.05); beep(780,.09,'sine',.04);
-        } else if(pcx > rightDoorX){             // entered the RIGHT door → out the LEFT
+          burst(rightDoorX+DOOR_W/2, doorY, '#ffe9a8'); beep(520,.08,'sine',.05); beep(780,.09,'sine',.04);
+        } else if(pcx > rightDoorX){             // hopped into the RIGHT door → out the LEFT
           player.x = leftDoorX + DOOR_W + 6; player.vx=0; doorCd=20;
-          burst(leftDoorX+DOOR_W/2, groundY-DOOR_H/2, '#ffe9a8'); beep(520,.08,'sine',.05); beep(780,.09,'sine',.04);
+          burst(leftDoorX+DOOR_W/2, doorY, '#ffe9a8'); beep(520,.08,'sine',.05); beep(780,.09,'sine',.04);
         }
       }
       // world bounds
@@ -2980,7 +2986,8 @@
   refreshAuthUI();
 
   // ---- name window: shows your name, click to edit ----
-  function refreshNameCard(){ const n=document.getElementById('nameCardName'); if(n) n.textContent = (player.name||progress.name||'Player'); }
+  function refreshNameCard(){ const n=document.getElementById('nameCardName'); if(n) n.textContent = (player.name||progress.name||'Player');
+    const mn=document.getElementById('mpName'); if(mn) mn.textContent = '✎ '+(player.name||progress.name||'name'); }
   function openRename(){
     const np=document.getElementById('namePrompt'), ni=document.getElementById('nameInput');
     if(!np||!ni) return;
@@ -2997,6 +3004,7 @@
   }
   (function wireName(){
     const card=document.getElementById('nameCard'); if(card) card.addEventListener('click', openRename);
+    const mn=document.getElementById('mpName'); if(mn){ mn.style.cursor='pointer'; mn.style.textDecoration='underline'; mn.addEventListener('click', openRename); }
     const go=document.getElementById('nameGo'); if(go) go.addEventListener('click', saveName);
     const ni=document.getElementById('nameInput'); if(ni) ni.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); saveName(); } });
     refreshNameCard();
