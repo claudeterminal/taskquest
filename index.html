@@ -253,12 +253,32 @@
     padding:8px 14px;color:#bff0d2;font-family:'Quicksand',sans-serif;font-weight:800;font-size:14px;letter-spacing:.2px;
     box-shadow:0 8px 22px rgba(0,0,0,.3);
   }
+  #mpNames{
+    position:fixed;top:54px;left:14px;z-index:14;
+    display:flex;flex-direction:column;gap:4px;max-width:180px;
+    font-family:'Quicksand',sans-serif;font-weight:700;font-size:12px;
+  }
+  #mpNames .mpName{
+    display:flex;align-items:center;gap:6px;
+    background:rgba(8,40,30,.6);backdrop-filter:blur(6px);
+    border:1px solid rgba(120,220,170,.35);border-radius:9px;
+    padding:3px 9px;color:#eafff2;box-shadow:0 4px 12px rgba(0,0,0,.25);
+  }
+  #mpNames .mpDot{width:9px;height:9px;border-radius:50%;flex:0 0 auto;box-shadow:0 0 6px currentColor;}
   #teToggle{
     cursor:pointer;background:rgba(255,215,94,.18);
     border:1.5px solid rgba(255,215,94,.5);border-radius:8px;
     color:var(--gold);font-size:12px;line-height:1;padding:3px 7px;margin-left:2px;
   }
   #teToggle.on{background:var(--gold);color:#0a241b;}
+  .minbtn{
+    cursor:pointer;float:right;background:rgba(255,255,255,.14);
+    border:1.5px solid rgba(255,255,255,.3);border-radius:8px;
+    color:#fff;font-size:14px;font-weight:800;line-height:1;padding:2px 9px;margin-left:6px;
+  }
+  .minbtn:hover{background:rgba(255,255,255,.26);}
+  #hud.min > *:not(h2){display:none !important;}
+  #collectLog.min > *:not(h3){display:none !important;}
   #tePanel{
     display:none;margin:0 0 9px;
   }
@@ -305,7 +325,7 @@
 
 <!-- on-screen checklist + task box (top right) -->
 <div id="hud" class="hidden">
-  <h2>🌿 My Quests <button id="teToggle" title="Add / edit tasks">✎</button><span class="count" id="hudCount">0/0</span></h2>
+  <h2>🌿 My Quests <button id="teToggle" title="Add / edit tasks">✎</button><span class="count" id="hudCount">0/0</span><button id="hudMin" class="minbtn" title="Minimize">–</button></h2>
   <div id="qTabs">
     <button class="qtab" data-type="online">💻 Online</button>
     <button class="qtab" data-type="move">🏃 Move</button>
@@ -371,11 +391,12 @@
   <div id="nameCardEdit">✎ click to edit</div>
 </div>
 <div id="mpBadge">👥 Multiplayer · <span id="mpCount">1</span></div>
+<div id="mpNames"></div>
 
 <!-- collected log (top left, under multiplayer) -->
 <canvas id="minimap"></canvas>
 <div id="collectLog">
-  <h3>🏆 Done · <span id="clogCount">0</span></h3>
+  <h3>🏆 Done · <span id="clogCount">0</span><button id="clogMin" class="minbtn" title="Minimize">–</button></h3>
   <div id="gemTally">💎 Gem <span id="gemCount">0</span></div>
   <div id="clogList"></div>
 </div>
@@ -496,7 +517,8 @@
     if(has('table') && !t.includes('vegetable') && !t.includes('timetable')) return {icon:'table', color:'#b9824e'};
     if(has('eat','meal','food','snack','egg','arugula')) return {icon:'plate', color:'#eef1f6'};
     if(has('pill','mg','zinc','quercetin','probiotic','glutamine','zyrtec','vitamin','supplement','capsule')) return {icon:'pill', color:'#ff7eb6'};
-    if(has('move','exercise','walk','run','workout','gym','stretch')) return {icon:'shoe', color:'#ff6b6b'};
+    if(has('calorie','burn','cardio','treadmill','dumbbell','lift weight','weights','workout','exercise','gym')) return {icon:'dumbbell', color:'#ff6b6b'};
+    if(has('move','walk','run','stretch')) return {icon:'shoe', color:'#ff6b6b'};
     if(has('dress','clothes','shirt','shorts','wear','pack'))      return {icon:'shirt', color:'#7fb0ff'};
     if(has('work'))                                       return {icon:'laptop',   color:'#aab0bd'};
     if(has('doctor','reply','appointment','call ','message')) return {icon:'clipboard', color:'#9fe6ff'};
@@ -520,7 +542,7 @@
   function recomputeTiers(){ TIER_GAP = Math.min(80, Math.max(52, (groundY - TOP_SAFE - 30)/3)); }
   const tierY = (tt) => Math.max(TOP_SAFE, groundY - (14 + tt*TIER_GAP));   // lower bottom row; never into the top buttons
   // deterministic gentle wander so neighbours never differ by more than one tier (no big hops)
-  const TIER_PATTERN = [0,2,1,3,0,2,1,3,0,2,1,3,0,2,1,3,0,2,1,3];   // checkered low/high alternation
+  const TIER_PATTERN = [0,0,1,0,0,1,0,1,0,0,1,0,0,1,0,1,0,0,1,0];   // stay low — ground / one easy hop
   const tierAt = (i) => TIER_PATTERN[((i%TIER_PATTERN.length)+TIER_PATTERN.length)%TIER_PATTERN.length];
   function addStepsBetween(x0,t0,x1,t1){
     const gap=x1-x0; if(gap<=4) return;
@@ -540,20 +562,15 @@
     return top-30;
   }
   function buildForestBeyond(x0,x1){
-    let x=x0, tt=1;
+    // gentle, low, well-spaced curved mounds on the ground — easy to hop over, never stacked
+    let x=x0;
     while(x<x1){
-      const roll=Math.random();
-      if(roll<0.16){ const bw=180+Math.random()*120, by=tierY(Math.max(1,tt));   // a rope bridge over a gap
-        platforms.push({ x:x, y:by, w:bw, type:'bridge' }); x += bw + 70 + Math.random()*60; continue; }
-      if(roll<0.30){ const bw=150+Math.random()*70;                                // a wide rock (longer walk)
-        platforms.push({ x:x, y:tierY(Math.max(1,tt)), w:bw, type:'rock' }); x += bw + 80 + Math.random()*70; continue; }
-      if(roll<0.44){ const bw=200+Math.random()*120;                               // a long tree branch
-        platforms.push({ x:x, y:tierY(Math.min(3,tt+1)), w:bw, type:'branch' }); x += bw + 60 + Math.random()*60; continue; }
-      tt=Math.max(0,Math.min(3, tt + [-1,0,1][(Math.random()*3)|0]));
-      if(tt>0) platforms.push({ x:x-STEP_W/2, y:tierY(tt), w:STEP_W, type:PLAT_TYPES[(x|0)%PLAT_TYPES.length] });
-      if(tt>=2 && Math.random()<0.4) vines.push({ x:x+18, top:0, len:tierY(tt)-6 });
-      if(Math.random()<0.3){ const fy=tierY(tt)-26; gems.push({ x:x, y:fy, baseY:fy, color:GEM_COLORS[(x|0)%GEM_COLORS.length], taskIndex:-1, free:true, collected:false, bob:Math.random()*Math.PI*2 }); }
-      x += 116 + Math.random()*44;
+      const w = 150+Math.random()*150;
+      const ty = Math.random()<0.5 ? 'rock' : 'bridge';
+      const peak = groundY - (38+Math.random()*46);
+      platforms.push({ x:x, y:peak, w, type:ty, curve:true, baseY:groundY });
+      if(Math.random()<0.18){ const fy=peak-26; gems.push({ x:x+w*0.5, y:fy, baseY:fy, color:GEM_COLORS[(x|0)%GEM_COLORS.length], taskIndex:-1, free:true, collected:false, bob:Math.random()*Math.PI*2 }); }
+      x += w + 170 + Math.random()*190;
     }
   }
   function isCooking(text){ const t=(text||'').toLowerCase();
@@ -652,19 +669,18 @@
       else if(ty==='rock') w=130+Math.random()*120;
       else w=72+Math.random()*70;
       if(ty==='rock' || ty==='bridge'){
-        // curved mound sitting on the ground — walk up it, over the top, and back down to the ground
-        const peak = Math.max(TOP_SAFE+20, groundY - (64+Math.random()*92));
+        // gentle, low curved mound on the ground — walk up it, over, and back down
+        const peak = groundY - (36+Math.random()*48);
         platforms.push({ x:x, y:peak, w, type:ty, curve:true, baseY:groundY });
-        if(Math.random()<0.22){ const gy=peak-26; gems.push({ x:x+w*0.5, y:gy, baseY:gy, color:GEM_COLORS[(x|0)%GEM_COLORS.length], taskIndex:-1, free:true, collected:false, bob:Math.random()*Math.PI*2 }); }
+        if(Math.random()<0.2){ const gy=peak-26; gems.push({ x:x+w*0.5, y:gy, baseY:gy, color:GEM_COLORS[(x|0)%GEM_COLORS.length], taskIndex:-1, free:true, collected:false, bob:Math.random()*Math.PI*2 }); }
       } else {
-        // flat ledge — checkered: alternate a low one then a higher one
-        const lift = (i%2===0) ? (30+Math.random()*46) : (130+Math.random()*90);
-        const yy = Math.max(TOP_SAFE, groundY - lift);
+        // flat ledge — kept LOW so it's an easy single hop (no high stacks)
+        const lift = 28+Math.random()*60;
+        const yy = groundY - lift;
         platforms.push({ x:x, y:yy, w, type:ty });
-        if(Math.random()<0.32) vines.push({ x:x+w*0.5, top:0, len:yy-6 });
-        if(Math.random()<0.2){ const gy=yy-26; gems.push({ x:x+w*0.5, y:gy, baseY:gy, color:GEM_COLORS[(x|0)%GEM_COLORS.length], taskIndex:-1, free:true, collected:false, bob:Math.random()*Math.PI*2 }); }
+        if(Math.random()<0.18){ const gy=yy-26; gems.push({ x:x+w*0.5, y:gy, baseY:gy, color:GEM_COLORS[(x|0)%GEM_COLORS.length], taskIndex:-1, free:true, collected:false, bob:Math.random()*Math.PI*2 }); }
       }
-      x += w + 120 + Math.random()*150;   // big gaps → spread out, room to walk on the ground
+      x += w + 150 + Math.random()*170;   // big gaps → never stacked, room to walk on the ground
       i++;
     }
   }
@@ -1072,8 +1088,8 @@
           const top = surfaceY(p, px);
           const feet = player.y+player.h;
           if(p.curve){
-            // walkable slope: snap up onto the curve as you walk up it, and stand while crossing
-            if(player.vy >= 0 && feet >= top-2 && feet <= top+54){
+            // walkable slope: stay glued to the curve going up AND down (no popping off the crest)
+            if(player.vy >= 0 && feet >= top-2 && feet <= top+90){
               player.y = top - player.h; player.vy = 0; player.onGround = true;
             }
           } else if(player.vy >= 0 && feet <= top+player.vy*dt+2 && feet >= top-2){
@@ -2012,6 +2028,14 @@
         // glossy highlight
         gloss(-r*0.32,-r*0.2,r*0.5,r*0.12,0,0.5);
         ctx.restore(); break; }
+      case 'dumbbell': {
+        ctx.save(); ctx.rotate(-0.5);
+        ctx.fillStyle=shade(color,-12); roundRect(-r*0.28,-r*0.16,r*0.56,r*0.32,r*0.08);   // handle bar
+        const plate=(px)=>{ ctx.fillStyle=grad(r*0.9); roundRect(px-r*0.16,-r*0.62,r*0.2,r*1.24,r*0.09);   // outer plate
+          ctx.fillStyle=shade(color,-20); roundRect(px-r*0.34,-r*0.46,r*0.2,r*0.92,r*0.09); };           // inner plate
+        plate(r*0.6); ctx.save(); ctx.scale(-1,1); plate(r*0.6); ctx.restore();
+        gloss(-r*0.1,-r*0.34,r*0.16,r*0.5,0,0.4);
+        ctx.restore(); break; }
       case 'shoe':
         ctx.fillStyle=grad(r*0.9); ctx.beginPath();
         ctx.moveTo(-r*0.9,r*0.4); ctx.lineTo(-r*0.9,-r*0.1); ctx.quadraticCurveTo(-r*0.3,-r*0.2,r*0.1,-r*0.45); ctx.quadraticCurveTo(r*0.6,-r*0.62,r*0.95,-r*0.1); ctx.lineTo(r*0.95,r*0.4); ctx.closePath(); ctx.fill();
@@ -2077,7 +2101,7 @@
       const moving = Math.abs(o.x - rp.x) > 1.2;
       const air = Math.abs(o.y - rp.y) > 6;
       drawAnimal(o.animal||'green', sx, cy, o.facing||1, 1, blink, o.name||'friend', t*0.02, moving, air);
-      if(o.msg && (Date.now()-(o.msgT||0) < 6000)) speechBubble(sx, cy-72, o.msg);
+      if(o.msg && (Date.now()-(o.msgT||0) < 6000)) speechBubble(sx, cy-118, o.msg);
     }
   }
   function drawLocalPlayer(){
@@ -2086,7 +2110,7 @@
     const air = !player.onGround;
     const bob = moving ? Math.sin(player.bob)*2 : 0;
     drawAnimal(player.animal||'green', cx, cy+bob, player.facing, player.squash, player.blink<12, player.name, player.bob, moving, air, !!player.onVine);
-    if(player.say && player.say.until > Date.now()) speechBubble(cx, cy-72, player.say.text);
+    if(player.say && player.say.until > Date.now()) speechBubble(cx, cy-118, player.say.text);
   }
 
   // ---------- helpers ----------
@@ -2174,6 +2198,30 @@
     }
     ctx.restore(); ctx.textAlign='left'; ctx.textBaseline='alphabetic';
   }
+  // 16 hourly wooden posts (8:00 AM → 11:00 PM), each with a wooden time sign in the middle
+  function drawTimePosts(){
+    const n=16, topY=104;
+    ctx.save(); ctx.translate(-cam,0);
+    for(let i=0;i<n;i++){
+      const x=(i+0.5)*WORLD_W/n;
+      if(x-cam < -90 || x-cam > W+90) continue;
+      // wooden stick
+      ctx.fillStyle='#7a4e2e'; ctx.fillRect(x-4, topY, 8, groundY-topY);
+      ctx.fillStyle='#9a6a3c'; ctx.fillRect(x-4, topY, 3, groundY-topY);
+      // time label
+      const hr=8+i, ap=hr<12?'AM':'PM'; let h12=hr%12; if(h12===0) h12=12;
+      const label=h12+':00 '+ap;
+      const sy=(topY+groundY)/2;
+      ctx.font='800 14px Quicksand,sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+      const sw=ctx.measureText(label).width+22, sh=30;
+      ctx.fillStyle='#5b3a22'; roundRect(x-sw/2-3, sy-sh/2-3, sw+6, sh+6, 8);   // frame
+      ctx.fillStyle='#b9824e'; roundRect(x-sw/2, sy-sh/2, sw, sh, 6);            // plank
+      ctx.fillStyle='#e9d3b0'; ctx.fillRect(x-sw/2+4, sy-sh/2+3, sw-8, 3);       // plank highlight
+      ctx.fillStyle='#3a2412'; ctx.fillText(label, x, sy+1);
+    }
+    ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+    ctx.restore();
+  }
   function render(){
     sky();
     drawSectionBackdrops();
@@ -2181,6 +2229,7 @@
     drawRays();
     drawBgTrees();
     drawGround();
+    drawTimePosts();
     drawVines();
     drawStructures();
     drawSectionLabels();
@@ -2337,7 +2386,10 @@
     for(const g of gems){
       if(g.collected || g.free || g.flying) continue;
       if(!typeShown(tasks[g.taskIndex].type)) continue;
-      if(Math.hypot(mx-(g.x-cam), my-g.y) < 34){ editTask(g.taskIndex); break; }
+      const gx=g.x-cam;
+      const onIcon  = Math.hypot(mx-gx, my-g.y) < 40;
+      const onLabel = Math.abs(mx-gx) < 150 && my < g.y-18 && my > g.y-160;   // the name bubble above the icon
+      if(onIcon || onLabel){ editTask(g.taskIndex); break; }
     }
   });
 
@@ -2371,13 +2423,13 @@
     if(!g || g.free || g.flying) return;
     const _ox=(g.baseX!==undefined?g.baseX:g.x), _oy=(g.baseY!==undefined?g.baseY:g.y);
     undoStack.push(()=>{ g.flying=null; g.x=_ox; g.baseX=_ox; g.y=_oy; g.baseY=_oy; });
-    const tx = 230 - (pushedCount++ % 6)*34;  // shoved to the far-left back (start) to do later — stacks leftward, never rightward
+    const tx = WORLD_W - 200 - (pushedCount++ % 6)*34;  // shoved to the far RIGHT (down the path) to do later
     const ty = groundY - 46;
     g.flying = { fromX:g.x, fromY:g.y, tx, ty, t:0 };
-    player.squash = 1.35; player.facing = -1; // shove to the LEFT
+    player.squash = 1.35; player.facing = 1; // shove to the RIGHT
     burst(g.x, g.y, '#cfe9ff');
     beep(300,.09,'square',.06); beep(170,.16,'sawtooth',.05);   // whoosh
-    floats.push({x:g.x, y:g.y-20, text:'⬅ later', color:'#bff0d2', life:1.1, vy:-0.7, size:14, bold:true});
+    floats.push({x:g.x, y:g.y-20, text:'later ➡', color:'#bff0d2', life:1.1, vy:-0.7, size:14, bold:true});
     hideVerifyBar();
   }
 
@@ -2544,6 +2596,16 @@
       const cnt=Object.keys(others).length+1;
       const c=document.getElementById('mpCount');
       if(c) c.textContent=cnt;
+      // names panel (top-left): you + everyone else online
+      const np=document.getElementById('mpNames');
+      if(np){
+        const dot=col=>`<span class="mpDot" style="background:${col};color:${col}"></span>`;
+        const meCol=(FROG_BY_KEY[MP.animal]||{}).body||'#3fbf66';
+        const rows=[`<div class="mpName">${dot(meCol)}${escapeHtml(player.name||'You')} (you)</div>`];
+        for(const id in others){ const o=others[id]; const col=(FROG_BY_KEY[o.animal]||{}).body||'#9aa0ad';
+          rows.push(`<div class="mpName">${dot(col)}${escapeHtml(o.name||'friend')}</div>`); }
+        np.innerHTML=rows.join('');
+      }
     }catch(e){}
   }
   function mpInit(){
@@ -2593,6 +2655,20 @@
       setTimeout(()=>{ hint.classList.remove('show'); }, 5200);
     }
   }
+
+  // minimize / restore the two task boxes
+  function wireMinimize(btnId, boxId){
+    const btn=document.getElementById(btnId), box=document.getElementById(boxId);
+    if(!btn||!box) return;
+    btn.addEventListener('click', e=>{
+      e.stopPropagation();
+      const min=box.classList.toggle('min');
+      btn.textContent = min ? '+' : '–';
+      btn.title = min ? 'Expand' : 'Minimize';
+    });
+  }
+  wireMinimize('hudMin','hud');
+  wireMinimize('clogMin','collectLog');
 
   // task-editor wiring
   function applyTasks(){
