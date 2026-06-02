@@ -803,7 +803,7 @@
     keys[e.key] = true;
     if((e.key==='ArrowUp'||e.key===' ') && !e.repeat) player.jumpBuf = 8;
     if((e.metaKey||e.ctrlKey) && (e.key==='z'||e.key==='Z')){ e.preventDefault(); doUndo(); return; }
-    if((e.key==='Enter'||e.key==='z'||e.key==='Z'||e.key==='Shift') && !e.metaKey && !e.ctrlKey && pendingGem){ e.preventDefault(); confirmTask(); }
+    if((e.key==='Enter'||e.key==='z'||e.key==='Z'||e.key==='Shift'||e.key==='c'||e.key==='C') && !e.metaKey && !e.ctrlKey && pendingGem){ e.preventDefault(); confirmTask(); }
     if((e.key==='x'||e.key==='X') && pendingGem){ e.preventDefault(); dismissTask(); }
     if((e.key==='d'||e.key==='D') && pendingGem){ e.preventDefault(); pushTask(pendingGem); }
   }, {passive:false});
@@ -1055,10 +1055,10 @@
     t += dt;
     // tasks being pushed to the far end of the map glide over there
     for(const g of gems){ if(!g.flying) continue;
-      const f=g.flying; f.t=Math.min(1, f.t + 0.05*dt);
+      const f=g.flying; f.t=Math.min(1, f.t + (f.slow?0.014:0.05)*dt);   // delay = slow-motion drift
       const e=1-Math.pow(1-f.t,3);
       g.x = f.fromX + (f.tx-f.fromX)*e;
-      g.baseY = f.fromY + (f.ty-f.fromY)*e; g.y = g.baseY;
+      g.baseY = f.fromY + (f.ty-f.fromY)*e - (f.slow? Math.sin(f.t*Math.PI)*60 : 0); g.y = g.baseY;  // gentle arc when delayed
       if(f.t>=1){ g.flying=null; g.baseX=g.x; }
     }
     // horizontal (frame-rate independent so speed never depends on FPS)
@@ -1371,10 +1371,32 @@
     mossTufts(p);
   }
   function drawLedge(p){
-    roundRect(p.x, p.y, p.w, 18, 9, '#8a5d36');          // brown rounded body
-    roundRect(p.x, p.y, p.w, 9, 6, '#3f9c57');           // green rounded top
-    ctx.fillStyle='#56c47a'; roundRect(p.x+3, p.y+1, p.w-6, 4, 3);   // grassy highlight
-    ctx.fillStyle='rgba(60,38,20,.25)'; roundRect(p.x+4, p.y+13, p.w-8, 3, 2);  // soft shadow line
+    // deterministic per-platform variety (stable each frame, seeded by its x)
+    const seed=Math.abs(Math.floor(p.x*0.7+p.y*0.3));
+    const r=(k)=>((Math.sin((seed+1)*(k*12.9898))*43758.5453)%1+1)%1;
+    const browns=['#8a5d36','#7e5230','#946640','#86592f'];
+    const greens=['#3f9c57','#3a9150','#48ab61','#359050'];
+    const brown=browns[seed%browns.length], green=greens[(seed>>1)%greens.length];
+    const h=15+Math.floor(r(2)*7);
+    const rad=5+r(3)*6;
+    const cap=7+Math.floor(r(4)*4);
+    // earthy body (slightly uneven width via overhang)
+    roundRect(p.x, p.y, p.w, h, rad, brown);
+    ctx.fillStyle='rgba(0,0,0,.10)'; roundRect(p.x+2, p.y+h-4, p.w-4, 4, 2);   // underside shade
+    // bumpy green cap that overhangs a touch unevenly
+    ctx.fillStyle=green;
+    roundRect(p.x-2+r(5)*2, p.y-1, p.w+2, cap, rad*0.7);
+    // a few grass blades at varied spots
+    ctx.fillStyle='#5fce80';
+    const n=2+Math.floor(r(6)*3);
+    for(let i=0;i<n;i++){
+      const gx=p.x+6+r(7+i)* (p.w-12);
+      const bh=5+r(11+i)*6;
+      ctx.beginPath(); ctx.moveTo(gx,p.y); ctx.lineTo(gx+2.5,p.y-bh); ctx.lineTo(gx+5,p.y); ctx.closePath(); ctx.fill();
+    }
+    // scattered dirt speckles
+    ctx.fillStyle='rgba(50,32,16,.32)';
+    for(let i=0;i<3;i++){ const dx=p.x+8+r(17+i)*(p.w-16); ctx.fillRect(dx, p.y+h*0.5+ (i%2)*3, 3, 3); }
   }
   function drawLeaf(p){
     roundRect(p.x,p.y,p.w,22,11,'#1f8a47');
@@ -2539,15 +2561,25 @@
   let pushedCount = 0;
   function pushTask(g){
     if(!g || g.free || g.flying) return;
-    const _ox=(g.baseX!==undefined?g.baseX:g.x), _oy=(g.baseY!==undefined?g.baseY:g.y);
-    undoStack.push(()=>{ g.flying=null; g.x=_ox; g.baseX=_ox; g.y=_oy; g.baseY=_oy; });
-    const tx = WORLD_W - 200 - (pushedCount++ % 6)*34;  // shoved to the far RIGHT (down the path) to do later
-    const ty = groundY - 46;
-    g.flying = { fromX:g.x, fromY:g.y, tx, ty, t:0 };
-    player.squash = 1.35; player.facing = 1; // shove to the RIGHT
+    const tk = tasks[g.taskIndex];
+    const HW = WORLD_W/N_HOURS;
+    const curHour = (tk && tk.hour!=null) ? tk.hour : Math.floor(g.x/HW);
+    const nextHour = Math.min(N_HOURS-1, curHour+1);
+    const _ox=(g.baseX!==undefined?g.baseX:g.x), _oy=(g.baseY!==undefined?g.baseY:g.y), _oh=tk?tk.hour:null;
+    undoStack.push(()=>{ g.flying=null; g.x=_ox; g.baseX=_ox; g.y=_oy; g.baseY=_oy; if(tk) tk.hour=_oh; progress.tasksText=serializeTasks(); scheduleSave(); buildHud(); });
+    if(tk) tk.hour = nextHour;                                    // task now belongs to the next hour (persists)
+    const tx = nextHour*HW + HW*0.5 + (pushedCount++ % 5 - 2)*26; // lands in the next hour's block
+    const ty = groundY - 70;
+    const dir = tx>=g.x ? 1 : -1;
+    g.flying = { fromX:g.x, fromY:g.y, tx, ty, t:0, slow:true };  // slow-motion blow (see update loop)
+    // the person shoves it: face it, squash, and lunge toward where it was
+    player.facing = dir; player.squash = 1.5; player.vx += dir*MOVE*1.6;
     burst(g.x, g.y, '#cfe9ff');
-    beep(300,.09,'square',.06); beep(170,.16,'sawtooth',.05);   // whoosh
-    floats.push({x:g.x, y:g.y-20, text:'later ➡', color:'#bff0d2', life:1.1, vy:-0.7, size:14, bold:true});
+    beep(300,.10,'square',.06); beep(170,.22,'sawtooth',.05);    // long whoosh
+    floats.push({x:g.x, y:g.y-26, text:'⏳ DELAY', color:'#ffe07a', life:1.8, vy:-0.5, size:22, bold:true});
+    progress.tasksText=serializeTasks();
+    const bx=document.getElementById('taskBox'); if(bx) bx.value=progress.tasksText;
+    scheduleSave(); buildHud();
     hideVerifyBar();
   }
 
@@ -2845,7 +2877,7 @@
     if(tag==='INPUT'||tag==='TEXTAREA') return;          // already typing somewhere
     const hm=document.getElementById('house3d'); if(hm && !hm.classList.contains('hidden')) return;  // in 3D house mode
     if(!running || e.ctrlKey || e.metaKey || e.altKey) return;
-    if(e.key.length!==1 || [' ','z','Z','x','X','d','D'].includes(e.key)) return;   // leave game controls alone
+    if(e.key.length!==1 || [' ','z','Z','x','X','d','D','c','C'].includes(e.key)) return;   // leave game controls alone
     const qa=document.getElementById('quickAdd'); if(!qa) return;
     e.preventDefault(); qa.focus(); qa.value += e.key;
   });
@@ -3034,7 +3066,6 @@
   <div id="houseHint">Click to look around · W/A/S/D or arrows to walk · Esc to release</div>
 </div>
 <script src="https://unpkg.com/three@0.149.0/build/three.min.js"></script>
-<script src="https://unpkg.com/three@0.149.0/examples/js/controls/PointerLockControls.js"></script>
 <script>
 (function(){
   let scene,camera,renderer,controls,raf,prevT=0,inited=false;
@@ -3073,23 +3104,32 @@
     box(0.05,0.18,0.05,0x444a55,-2.32,0.95,-0.5);      // spout-ish
     box(0.05,0.16,0.26,0x333842,-2.55,1.02,-0.5);      // handle
   }
+  function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); }); }
+  async function ensureThree(){
+    if(window.THREE) return true;
+    for(const u of ['https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js','https://unpkg.com/three@0.149.0/build/three.min.js','https://cdn.jsdelivr.net/npm/three@0.137.0/build/three.min.js']){
+      try{ await loadScript(u); }catch(e){} if(window.THREE) break;
+    }
+    return !!window.THREE;
+  }
+  let yaw=0, pitch=0, cv=null;
+  function isLocked(){ return document.pointerLockElement===cv; }
   function init(){
     if(inited) return; inited=true;
-    if(typeof THREE==='undefined'||!THREE.PointerLockControls){ alert('3D needs an internet connection (loading Three.js).'); return; }
     const wrap=document.getElementById('house3d');
     renderer=new THREE.WebGLRenderer({antialias:true});
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(window.innerWidth,window.innerHeight);
-    wrap.insertBefore(renderer.domElement, wrap.firstChild);
+    cv=renderer.domElement;
+    wrap.insertBefore(cv, wrap.firstChild);
     scene=new THREE.Scene(); scene.background=new THREE.Color(0xcde2f0);
     camera=new THREE.PerspectiveCamera(72, innerWidth/innerHeight, 0.1, 100);
+    camera.rotation.order='YXZ'; camera.position.set(0,1.6,3);
     scene.add(new THREE.HemisphereLight(0xffffff,0x8a8270,1.05));
     const dl=new THREE.DirectionalLight(0xffffff,0.55); dl.position.set(3,7,4); scene.add(dl);
     buildRoom();
-    controls=new THREE.PointerLockControls(camera, renderer.domElement);
-    controls.getObject().position.set(0,1.6,3);
-    scene.add(controls.getObject());
-    renderer.domElement.addEventListener('click',()=>{ try{controls.lock();}catch(e){} });
+    cv.addEventListener('click',()=>{ if(cv.requestPointerLock) cv.requestPointerLock(); });
+    document.addEventListener('mousemove',e=>{ if(isLocked()){ yaw-=e.movementX*0.0024; pitch-=e.movementY*0.0024; pitch=Math.max(-1.35,Math.min(1.35,pitch)); } });
     window.addEventListener('resize',()=>{ if(!renderer) return; camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight); });
     document.addEventListener('keydown',e=>{ keys[e.code]=true; });
     document.addEventListener('keyup',e=>{ keys[e.code]=false; });
@@ -3097,28 +3137,35 @@
   function loop(t){
     raf=requestAnimationFrame(loop);
     const dt=Math.min(0.05,(t-prevT)/1000||0); prevT=t;
-    if(controls){
-      const sp=3.5; let f=0,s=0;
-      if(keys['KeyW']||keys['ArrowUp'])f+=1;
-      if(keys['KeyS']||keys['ArrowDown'])f-=1;
-      if(keys['KeyA']||keys['ArrowLeft'])s-=1;
-      if(keys['KeyD']||keys['ArrowRight'])s+=1;
-      if(controls.isLocked){ controls.moveForward(f*sp*dt); controls.moveRight(s*sp*dt); }
-      const o=controls.getObject();
-      o.position.x=Math.max(-3.6,Math.min(3.6,o.position.x));
-      o.position.z=Math.max(-3.6,Math.min(3.6,o.position.z));
-      o.position.y=1.6;
-      renderer.render(scene,camera);
-    }
+    if(!renderer) return;
+    camera.rotation.set(pitch,yaw,0);
+    const sp=3.2; let f=0,s=0;
+    if(keys['KeyW']||keys['ArrowUp'])f+=1;
+    if(keys['KeyS']||keys['ArrowDown'])f-=1;
+    if(keys['KeyA']||keys['ArrowLeft'])s-=1;
+    if(keys['KeyD']||keys['ArrowRight'])s+=1;
+    const sinY=Math.sin(yaw), cosY=Math.cos(yaw);
+    camera.position.x += (-sinY*f + cosY*s)*sp*dt;
+    camera.position.z += (-cosY*f - sinY*s)*sp*dt;
+    camera.position.x=Math.max(-3.6,Math.min(3.6,camera.position.x));
+    camera.position.z=Math.max(-3.6,Math.min(3.6,camera.position.z));
+    camera.position.y=1.6;
+    renderer.render(scene,camera);
   }
-  window.enterHouse=function(){
-    document.getElementById('house3d').classList.remove('hidden');
-    init(); if(!renderer){ document.getElementById('house3d').classList.add('hidden'); return; }
+  window.enterHouse=async function(){
+    const wrap=document.getElementById('house3d');
+    wrap.classList.remove('hidden');
+    const hint=document.getElementById('houseHint');
+    if(!window.THREE){ if(hint) hint.textContent='Loading 3D…'; }
+    const ok=await ensureThree();
+    if(!ok){ if(hint) hint.textContent='Could not load 3D (need internet). Tap Back.'; return; }
+    if(hint) hint.textContent='Click to look · W/A/S/D or arrows to walk · Esc to release';
+    init(); if(!renderer){ wrap.classList.add('hidden'); return; }
     prevT=performance.now(); cancelAnimationFrame(raf); loop(prevT);
   };
   window.exitHouse=function(){
     document.getElementById('house3d').classList.add('hidden');
-    if(controls&&controls.isLocked) controls.unlock();
+    if(isLocked()) document.exitPointerLock();
     cancelAnimationFrame(raf);
   };
   document.getElementById('houseBtn').addEventListener('click',()=>window.enterHouse());
