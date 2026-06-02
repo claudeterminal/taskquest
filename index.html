@@ -475,6 +475,8 @@
   </div>
 </div>
 
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 <script>
 (() => {
   const canvas = document.getElementById('c');
@@ -1053,6 +1055,30 @@
   let showOnline = true, showMove = true;
   const MP = { id: Math.random().toString(36).slice(2,9), animal:null, others:{} };
   const mpRender = {};   // eased render positions for remote players
+  // ---- real cross-device multiplayer via Firebase Realtime Database ----
+  const firebaseConfig = {
+    apiKey: "AIzaSyD2GPJbsIoTQF-dCwIEwvBwRjQFU3baPCw",
+    authDomain: "task-game-fe06e.firebaseapp.com",
+    databaseURL: "https://task-game-fe06e-default-rtdb.firebaseio.com",
+    projectId: "task-game-fe06e",
+    storageBucket: "task-game-fe06e.firebasestorage.app",
+    messagingSenderId: "668207718749",
+    appId: "1:668207718749:web:8613206407b98651fc08b4",
+    measurementId: "G-1PXNM685P9"
+  };
+  let fbRoster={}, fbReady=false, fbMineRef=null;
+  function fbInit(){
+    if(fbReady) return;
+    if(typeof firebase==='undefined' || !firebase.database) return;   // offline → falls back to localStorage
+    try{
+      if(!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+      const room=firebase.database().ref('rooms/main');
+      fbMineRef=room.child(MP.id);
+      fbMineRef.onDisconnect().remove();
+      room.on('value', s=>{ fbRoster=s.val()||{}; });
+      fbReady=true;
+    }catch(e){ fbReady=false; }
+  }
   function typeShown(tp){ return tp === 'online' ? showOnline : showMove; }
   function shownTotal(){ return tasks.filter(tk=>typeShown(tk.type)).length; }
   function shownDone(){ return tasks.filter(tk=>typeShown(tk.type) && tk.done).length; }
@@ -2574,9 +2600,15 @@
     const nextHour = Math.min(N_HOURS-1, curHour+1);
     const _ox=(g.baseX!==undefined?g.baseX:g.x), _oy=(g.baseY!==undefined?g.baseY:g.y), _oh=tk?tk.hour:null;
     undoStack.push(()=>{ g.flying=null; g.x=_ox; g.baseX=_ox; g.y=_oy; g.baseY=_oy; if(tk) tk.hour=_oh; progress.tasksText=serializeTasks(); scheduleSave(); buildHud(); });
+    // find the next free platform slot in the next hour and aim the task there
+    const fracs=[0.12,0.32,0.68,0.88];
+    const rowGap=((JUMP*JUMP)/(2*GRAV))*0.7;
+    const cnt = tasks.filter(t=>t.hour===nextHour && t!==tk).length;   // tasks already in the next hour
+    const si = cnt, rr=Math.floor(si/4), fi=si%4;
+    const jit=(rr%2)?HW*0.05:-HW*0.05;
     if(tk) tk.hour = nextHour;                                    // task now belongs to the next hour (persists)
-    const tx = nextHour*HW + HW*0.5 + (pushedCount++ % 5 - 2)*26; // lands in the next hour's block
-    const ty = groundY - 70;
+    const tx = nextHour*HW + HW*fracs[fi] + jit;
+    const ty = (groundY - 50 - rr*rowGap) - 30;                   // sit on that empty platform
     const dir = tx>=g.x ? 1 : -1;
     g.flying = { fromX:g.x, fromY:g.y, tx, ty, t:0, slow:true };  // slow-motion blow (see update loop)
     // the person shoves it: face it, squash, and lunge toward where it was
@@ -2696,15 +2728,21 @@
   const MP_LS_KEY = 'frogquest_roster';   // same-browser windows / hosted URL
   async function readRoster(){
     const all={}; const now=Date.now();
+    if(fbReady){
+      for(const id in fbRoster){ if(fbRoster[id]) all[id]=fbRoster[id]; }
+      for(const id in all){ if(now-(all[id].t||0) > 12000) delete all[id]; }   // stale (crashed) clients
+      return all;
+    }
     if(window.storage){
       try{ const r=await window.storage.get('roster', true); if(r && r.value){ const o=JSON.parse(r.value); for(const id in o) all[id]=o[id]; } }catch(e){}
     }
     try{ const raw=localStorage.getItem(MP_LS_KEY); if(raw){ const o=JSON.parse(raw);
       for(const id in o){ if(!all[id] || (o[id].t||0) > (all[id].t||0)) all[id]=o[id]; } } }catch(e){}
-    for(const id in all){ if(now-(all[id].t||0) > 2500) delete all[id]; }   // drop the gone
+    for(const id in all){ if(now-(all[id].t||0) > 2500) delete all[id]; }
     return all;
   }
   async function writeRoster(roster){
+    if(fbReady && fbMineRef){ try{ fbMineRef.set(roster[MP.id]); }catch(e){} return; }
     if(window.storage){ try{ await window.storage.set('roster', JSON.stringify(roster), true); }catch(e){} }
     try{ localStorage.setItem(MP_LS_KEY, JSON.stringify(roster)); }catch(e){}
   }
@@ -2741,11 +2779,13 @@
     }catch(e){}
   }
   function mpInit(){
+    fbInit();
     mpTick();
-    setInterval(mpTick, 1100);
-    // pick up other windows the instant they write (same browser)
+    setInterval(mpTick, fbReady ? 250 : 1100);   // smoother live updates over Firebase
+    // pick up other windows the instant they write (same browser, localStorage fallback)
     window.addEventListener('storage', e=>{ if(e.key===MP_LS_KEY) mpTick(); });
     const removeSelf = ()=>{
+      try{ if(fbMineRef) fbMineRef.remove(); }catch(e){}
       try{ const raw=localStorage.getItem(MP_LS_KEY); const o=raw?JSON.parse(raw):{}; delete o[MP.id]; localStorage.setItem(MP_LS_KEY, JSON.stringify(o)); }catch(e){}
       try{ if(window.storage){ window.storage.get('roster',true).then(r=>{ if(r&&r.value){ const o=JSON.parse(r.value); delete o[MP.id]; window.storage.set('roster',JSON.stringify(o),true); } }).catch(()=>{}); } }catch(e){}
     };
